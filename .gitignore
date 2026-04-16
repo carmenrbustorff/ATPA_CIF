@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Experiment artefacts (keep the directory, ignore generated files)
+experiments/iter_*/
+# but keep the placeholder
+!experiments/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kaggle
+*.zip
+kaggle.json
+
+# Model weights
+*.h5
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+*.log
