@@ -8,9 +8,7 @@ Two backends are supported:
   - ``librosa``  (default, CPU-only, broad format support)
   - ``torchaudio``  (optional, faster on GPU, PyTorch-native)
 
-All functions follow a "small-scale first" philosophy: by default they
-use short clip durations and low-resolution spectrograms to enable fast
-initial iterations, with parameters available for higher-fidelity runs.
+All constants default to the project-wide values defined in ``config.py``.
 """
 
 from __future__ import annotations
@@ -22,20 +20,19 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 
+from config import (
+    SR as DEFAULT_SR,
+    CLIP_DURATION as DEFAULT_DURATION,
+    N_MELS as DEFAULT_N_MELS,
+    N_FFT as DEFAULT_N_FFT,
+    HOP_LENGTH as DEFAULT_HOP_LENGTH,
+    F_MIN as DEFAULT_FMIN,
+    F_MAX as DEFAULT_FMAX,
+    TOP_DB,
+    NUM_SPECIES,
+)
+
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants / defaults (can be overridden per call)
-# ---------------------------------------------------------------------------
-
-NUM_SPECIES = 234          # BirdCLEF+ 2026 Track B
-DEFAULT_SR = 22050         # sample rate in Hz
-DEFAULT_DURATION = 5.0     # seconds — short for fast iteration
-DEFAULT_N_MELS = 64        # low-res for speed (use 128/224 for production)
-DEFAULT_N_FFT = 1024
-DEFAULT_HOP_LENGTH = 512
-DEFAULT_FMIN = 50.0        # Hz — typical bird-call range
-DEFAULT_FMAX = 14000.0     # Hz
 
 
 # ---------------------------------------------------------------------------
