@@ -36,6 +36,9 @@ import torchaudio
 import torchaudio.transforms as T
 from torch.utils.data import DataLoader, Dataset
 
+from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
+
+
 # ---------------------------------------------------------------------------
 # Module-level logger
 # ---------------------------------------------------------------------------
@@ -53,13 +56,13 @@ DATA_ROOT = Path("/mnt/disks/data/birdclef")
 METADATA_CSV = DATA_ROOT / "train_metadata.csv"
 AUDIO_DIR = DATA_ROOT / "train_audio"
 
-SAMPLE_RATE = 32_000          # native rate of BirdCLEF OGG files
-CLIP_DURATION = 5.0           # seconds
+SAMPLE_RATE = SR          # native rate of BirdCLEF OGG files
+CLIP_DURATION = CLIP_DURATION           # seconds
 CLIP_SAMPLES = int(SAMPLE_RATE * CLIP_DURATION)  # 160,000
 
-N_MELS = 128
-N_FFT = 1024
-HOP_LENGTH = 512
+N_MELS = N_MELS
+N_FFT = N_FFT
+HOP_LENGTH = HOP_LENGTH
 F_MIN = 50.0
 F_MAX = 14_000.0
 TOP_DB = 80.0
