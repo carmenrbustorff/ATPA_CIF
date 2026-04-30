@@ -20,9 +20,11 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
+from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
+
 logger = logging.getLogger(__name__)
 
-NUM_SPECIES = 234   # BirdCLEF+ 2026 Track B
+NUM_SPECIES = NUM_SPECIES   # BirdCLEF+ 2026 Track B
 
 
 # ---------------------------------------------------------------------------

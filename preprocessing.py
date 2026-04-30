@@ -22,18 +22,20 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 
+from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants / defaults (can be overridden per call)
 # ---------------------------------------------------------------------------
 
-NUM_SPECIES = 234          # BirdCLEF+ 2026 Track B
-DEFAULT_SR = 22050         # sample rate in Hz
-DEFAULT_DURATION = 5.0     # seconds — short for fast iteration
-DEFAULT_N_MELS = 64        # low-res for speed (use 128/224 for production)
-DEFAULT_N_FFT = 1024
-DEFAULT_HOP_LENGTH = 512
+NUM_SPECIES = NUM_SPECIES          # BirdCLEF+ 2026 Track B
+DEFAULT_SR = SR         # sample rate in Hz
+DEFAULT_DURATION = CLIP_DURATION     # seconds — short for fast iteration
+DEFAULT_N_MELS = N_MELS        # low-res for speed (use 128/224 for production)
+DEFAULT_N_FFT = N_FFT
+DEFAULT_HOP_LENGTH = HOP_LENGTH
 DEFAULT_FMIN = 50.0        # Hz — typical bird-call range
 DEFAULT_FMAX = 14000.0     # Hz
 
