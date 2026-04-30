@@ -332,6 +332,7 @@ def main() -> None:
         help="Output path for the generated notebook.",
     )
     args = parser.parse_args()
+
     out_path: Path = args.output
 
     if _NBFORMAT_AVAILABLE:

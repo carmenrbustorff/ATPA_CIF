@@ -52,7 +52,7 @@ def _count_species() -> int:
                 return sum(1 for _ in fh) - 1  # subtract header
         except OSError:
             pass
-    return 206   # BirdCLEF+ 2026 Track B fallback
+    return 206   # BirdCLEF+ 2026 Track B fallback (exact count derived from taxonomy.csv)
 
 
 NUM_SPECIES: int = _count_species()

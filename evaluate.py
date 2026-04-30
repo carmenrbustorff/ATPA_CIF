@@ -132,8 +132,8 @@ def run_inference(model, loader, device: torch.device):
 
 def main(args: argparse.Namespace) -> None:
     data_dir = Path(args.data_dir).expanduser()
-    train_csv = data_dir / "train.csv"
-    audio_dir = data_dir / "train_audio"
+    train_csv = data_dir / TRAIN_CSV.name      # train.csv
+    audio_dir = data_dir / AUDIO_DIR.name      # train_audio
     checkpoint = Path(args.checkpoint).expanduser()
     output_dir = Path(args.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
