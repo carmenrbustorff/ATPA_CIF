@@ -400,7 +400,7 @@ def save_state(experiments_dir: Path, state: Dict) -> None:
     state_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
 
-def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
+def update_state(state: Dict, iteration_id: str, results: Dict, llm_model: str = "") -> Dict:
     """Update state with the latest iteration results."""
     metrics = results.get("metrics", {})
     auc = metrics.get("final_val_auc", 0.0)
@@ -409,7 +409,14 @@ def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
         state["best_iteration"] = iteration_id
         logger.info("New best AUC: %.4f (iteration %s)", auc, iteration_id)
     state["history"].append(
-        {"iteration": iteration_id, "auc": auc, "metrics": metrics}
+        {
+            "iteration": iteration_id,
+            "auc": auc,
+            "llm_model": llm_model,
+            "exec_failed": results.get("returncode", 0) != 0,
+            "timed_out": results.get("timed_out", False),
+            "metrics": metrics,
+        }
     )
     state["iteration"] += 1
     return state
@@ -511,7 +518,7 @@ def run_agent(
             logger.warning("LLM unavailable for analysis step.")
 
         # --- Step 7: Iterate ---
-        state = update_state(state, iteration_id, results)
+        state = update_state(state, iteration_id, results, llm_model=model_name)
         save_state(EXPERIMENTS_DIR, state)
 
         logger.info(

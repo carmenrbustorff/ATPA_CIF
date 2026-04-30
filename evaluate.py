@@ -206,9 +206,11 @@ def main(args: argparse.Namespace) -> None:
     results = {
         "checkpoint": str(checkpoint),
         "model": args.model,
+        "llm_model": args.llm or None,
         "macro_auc": round(macro_auc, 6),
         "valid_classes": valid_count,
         "total_classes": num_classes,
+        "notes": args.notes or "",
         "per_class": per_class_results,
     }
 
@@ -222,6 +224,33 @@ def main(args: argparse.Namespace) -> None:
     thresholds_out = {species_list[c]: best_thresholds[c] for c in range(num_classes)}
     thresholds_path.write_text(json.dumps(thresholds_out, indent=2), encoding="utf-8")
     logger.info("Thresholds saved to %s", thresholds_path)
+
+    # ------------------------------------------------------------------
+    # Register result in the shared benchmark registry
+    # ------------------------------------------------------------------
+    try:
+        from benchmark import load_registry, save_registry, render_markdown, _upsert, _empty_entry, BENCHMARK_MD
+        from datetime import datetime as _dt
+
+        run_id = args.run_id or f"eval_{output_dir.name}"
+        entry = _empty_entry(run_id)
+        entry.update({
+            "timestamp": _dt.utcnow().isoformat(),
+            "source": "evaluate",
+            "model_arch": args.model,
+            "llm_model": args.llm or None,
+            "macro_auc": round(macro_auc, 6),
+            "best_val_auc": round(macro_auc, 6),
+            "notes": args.notes or f"checkpoint: {checkpoint}",
+        })
+        registry = load_registry()
+        _upsert(registry, entry)
+        registry.sort(key=lambda e: (-(e.get("macro_auc") or 0), e.get("run_id", "")))
+        save_registry(registry)
+        BENCHMARK_MD.write_text(render_markdown(registry), encoding="utf-8")
+        logger.info("Benchmark registry updated.")
+    except Exception as exc:
+        logger.warning("Could not update benchmark registry: %s", exc)
 
     print(json.dumps({"macro_auc": round(macro_auc, 6), "valid_classes": valid_count}))
 
@@ -255,6 +284,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size", type=int, default=32,
         help="Batch size for inference.",
+    )
+    parser.add_argument(
+        "--run-id", type=str, default=None,
+        help="Unique ID for this run in the benchmark registry (default: eval_<output-dir-name>).",
+    )
+    parser.add_argument(
+        "--llm", type=str, default=None,
+        help="LLM model used to generate this architecture (for benchmark tracking).",
+    )
+    parser.add_argument(
+        "--notes", type=str, default="",
+        help="Free-text notes added to the benchmark entry.",
     )
     return parser.parse_args()
 
