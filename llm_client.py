@@ -17,7 +17,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "gemma3"
+DEFAULT_MODEL = "qwen2.5-coder:32b"
 
 
 class LLMClient:
