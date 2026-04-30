@@ -426,13 +426,13 @@ def run_agent(
 
     # Initialise LLM client
     llm = LLMClient(model=model_name)
-    if not llm.is_available():
-        logger.error(
-            "Ollama server is not reachable at %s. "
-            "Start it with: ollama serve",
-            llm.base_url,
-        )
-        sys.exit(1)
+  #  if not llm.is_available():
+  #      logger.error(
+  #          "Ollama server is not reachable at %s. "
+  #          "Start it with: ollama serve",
+  #          llm.base_url,
+  #      )
+  #      sys.exit(1)
     logger.info("LLM client ready. Model: %s", llm.model)
 
     # Load persistent state

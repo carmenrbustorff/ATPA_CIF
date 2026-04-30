@@ -1,0 +1,17 @@
+{
+  "iteration": 2,
+  "best_auc": 0.0,
+  "best_iteration": null,
+  "history": [
+    {
+      "iteration": "iter_0000_20260430_163003",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0001_20260430_163329",
+      "auc": 0.0,
+      "metrics": {}
+    }
+  ]
+}
