@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 DATA_ROOT = Path("/mnt/disks/data/birdclef")
-METADATA_CSV = DATA_ROOT / "train_metadata.csv"
+METADATA_CSV = DATA_ROOT / "train.csv"
 AUDIO_DIR = DATA_ROOT / "train_audio"
 
 SAMPLE_RATE = SR          # native rate of BirdCLEF OGG files
