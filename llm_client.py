@@ -17,7 +17,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "deepseek-r1:8b"
+DEFAULT_MODEL = "gemma3"
 
 
 class LLMClient:
@@ -187,8 +187,8 @@ class LLMClient:
             "classification and bioacoustic deep learning. "
             "Your goal is to propose improved model architectures for the "
             "BirdCLEF+ 2026 competition (Track B), which requires multi-label "
-            "classification of bird species from mel-spectrogram inputs. "
-            "Always respond with working PyTorch code "
+            "classification of 234 bird species from mel-spectrogram inputs. "
+            "Always respond with working Python code (TensorFlow/Keras or PyTorch) "
             "followed by a brief explanation. Wrap code in ```python ... ``` blocks."
         )
         prev_section = (

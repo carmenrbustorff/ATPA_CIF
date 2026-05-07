@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from llm_client import LLMClient
-from config import NUM_SPECIES
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -57,18 +56,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
+NUM_SPECIES = 234
 MAX_EXEC_TIMEOUT = 600   # seconds – 10 minutes max per generated script
 
 TASK_CONTEXT_TEMPLATE = """\
 Task: BirdCLEF+ 2026 – Track B (audio classification)
 Goal: Multi-label classification of {num_species} bird species from mel-spectrograms.
 Constraints:
-  - PyTorch only (no TensorFlow/Keras)
+  - Use TensorFlow/Keras or PyTorch
   - Prioritise small-scale, fast iterations (short clips, low-res spectrograms)
   - Final Kaggle submission must run on CPU in ≤ 90 minutes
-  - Audio → mel-spectrogram preprocessing is in preprocessing.py (SR=32000, N_MELS=128)
+  - Audio → mel-spectrogram preprocessing is in preprocessing.py
   - Model scaffolds are in models.py
-  - Evaluation metric: macro-averaged ROC-AUC skipping classes with no true positives
 
 Dataset summary:
 {dataset_summary}
@@ -198,68 +197,52 @@ def propose_and_generate_code(
 
 def _fallback_training_script() -> str:
     """
-    Return a minimal PyTorch baseline training script for when the LLM
-    produces no code.
+    Return a minimal baseline training script for when the LLM produces no code.
+    Uses the project's own model and preprocessing modules.
     """
     return '''\
 import json, time, pathlib, numpy as np
-import torch
-import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
-from sklearn.metrics import roc_auc_score
 
-from models import build_simple_cnn_torch
-from config import NUM_SPECIES, N_MELS, TIME_FRAMES
+# Small-scale baseline using project scaffolds
+from models import build_simple_cnn_tf, compile_tf_model
+from preprocessing import spec_to_cnn_input
 
+import tensorflow as tf
+
+NUM_SPECIES = 234
+N_MELS = 64
+TIME_FRAMES = 216
 BATCH_SIZE = 16
 EPOCHS = 3
-LR = 1e-3
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # --- Synthetic data (replace with real dataset loader) ---
 np.random.seed(42)
 n_train, n_val = 200, 40
-X_train = torch.rand(n_train, 1, N_MELS, TIME_FRAMES)
-y_train = (torch.rand(n_train, NUM_SPECIES) > 0.95).float()
-X_val   = torch.rand(n_val, 1, N_MELS, TIME_FRAMES)
-y_val   = (torch.rand(n_val, NUM_SPECIES) > 0.95).float()
+X_train = np.random.rand(n_train, N_MELS, TIME_FRAMES, 1).astype("float32")
+y_train = (np.random.rand(n_train, NUM_SPECIES) > 0.95).astype("float32")
+X_val   = np.random.rand(n_val, N_MELS, TIME_FRAMES, 1).astype("float32")
+y_val   = (np.random.rand(n_val, NUM_SPECIES) > 0.95).astype("float32")
 
-model = build_simple_cnn_torch(num_classes=NUM_SPECIES).to(DEVICE)
-optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-criterion = nn.BCELoss()
-scaler = GradScaler()
+model = compile_tf_model(
+    build_simple_cnn_tf(input_shape=(N_MELS, TIME_FRAMES, 1))
+)
+model.summary()
 
 t0 = time.time()
-for epoch in range(EPOCHS):
-    model.train()
-    for i in range(0, n_train, BATCH_SIZE):
-        xb = X_train[i:i+BATCH_SIZE].to(DEVICE)
-        yb = y_train[i:i+BATCH_SIZE].to(DEVICE)
-        optimizer.zero_grad()
-        with autocast():
-            loss = criterion(model(xb), yb)
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-    # Validation
-    model.eval()
-    with torch.no_grad():
-        preds = model(X_val.to(DEVICE)).cpu().numpy()
-    y_np = y_val.numpy()
-    valid_cols = [c for c in range(NUM_SPECIES) if y_np[:, c].sum() > 0]
-    val_auc = roc_auc_score(y_np[:, valid_cols], preds[:, valid_cols],
-                            average="macro") if valid_cols else 0.0
-
-    if DEVICE.type == "cuda":
-        torch.cuda.empty_cache()
-
+history = model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
+    verbose=2,
+)
 elapsed = time.time() - t0
 
 metrics = {
-    "model": "SimpleCNN_baseline_torch",
+    "model": "SimpleCNN_baseline",
     "epochs": EPOCHS,
-    "final_val_auc": round(float(val_auc), 4),
+    "final_val_loss": float(history.history["val_loss"][-1]),
+    "final_val_auc": float(history.history.get("val_auc", [0])[-1]),
     "training_time_s": round(elapsed, 2),
 }
 out_path = pathlib.Path(__file__).parent / "metrics.json"
@@ -400,7 +383,7 @@ def save_state(experiments_dir: Path, state: Dict) -> None:
     state_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
 
-def update_state(state: Dict, iteration_id: str, results: Dict, llm_model: str = "") -> Dict:
+def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
     """Update state with the latest iteration results."""
     metrics = results.get("metrics", {})
     auc = metrics.get("final_val_auc", 0.0)
@@ -409,14 +392,7 @@ def update_state(state: Dict, iteration_id: str, results: Dict, llm_model: str =
         state["best_iteration"] = iteration_id
         logger.info("New best AUC: %.4f (iteration %s)", auc, iteration_id)
     state["history"].append(
-        {
-            "iteration": iteration_id,
-            "auc": auc,
-            "llm_model": llm_model,
-            "exec_failed": results.get("returncode", 0) != 0,
-            "timed_out": results.get("timed_out", False),
-            "metrics": metrics,
-        }
+        {"iteration": iteration_id, "auc": auc, "metrics": metrics}
     )
     state["iteration"] += 1
     return state
@@ -428,7 +404,7 @@ def update_state(state: Dict, iteration_id: str, results: Dict, llm_model: str =
 
 def run_agent(
     num_iterations: int = 5,
-    model_name: str = "deepseek-r1:8b",
+    model_name: str = "gemma3",
     data_dir: Optional[Path] = None,
     exec_timeout: int = MAX_EXEC_TIMEOUT,
 ) -> None:
@@ -518,7 +494,7 @@ def run_agent(
             logger.warning("LLM unavailable for analysis step.")
 
         # --- Step 7: Iterate ---
-        state = update_state(state, iteration_id, results, llm_model=model_name)
+        state = update_state(state, iteration_id, results)
         save_state(EXPERIMENTS_DIR, state)
 
         logger.info(
@@ -543,8 +519,8 @@ def _parse_args() -> argparse.Namespace:
         help="Number of architecture-search iterations to run.",
     )
     parser.add_argument(
-        "--model", type=str, default="deepseek-r1:8b",
-        help="Ollama model name (e.g. deepseek-r1:8b, qwen2.5-coder, llama3).",
+        "--model", type=str, default="gemma3",
+        help="Ollama model name (e.g. gemma3, qwen2.5-coder, llama3).",
     )
     parser.add_argument(
         "--data-dir", type=Path, default=None,
