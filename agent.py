@@ -81,7 +81,7 @@ CRITICAL RULES - READ CAREFULLY:
    
    DATA_DIR = "/mnt/disks/data/birdclef"
    METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
-   train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=32)
+   train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=64)
 
 3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
    - Channels: 1 (mono mel-spectrogram)
@@ -310,7 +310,7 @@ import torch.nn as nn
 
 DATA_DIR = "/mnt/disks/data/birdclef"
 METADATA_FILE = DATA_DIR + "/train.csv"
-train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=32)
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=64)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -337,7 +337,7 @@ batch_count = 0
 for epoch in range(2):
     model.train()
     for inputs, labels in train_loader:
-        if batch_count >= 100:
+        if batch_count >= 10:  # ~960 samples per epoch (30 batches × 32 batch_size)
             break
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -347,9 +347,9 @@ for epoch in range(2):
         optimizer.step()
         loss_sum += loss.item()
         batch_count += 1
+        torch.cuda.empty_cache()  # Clear after every batch to prevent OOM on shared GPU
     print(f"Epoch {epoch+1}, Loss: {loss_sum/max(1, batch_count):.4f}")
-    torch.cuda.empty_cache()
-    if batch_count >= 100:
+    if batch_count >= 10:
         break
 
 model.eval()
@@ -357,12 +357,13 @@ all_preds, all_labels = [], []
 batch_count = 0
 with torch.no_grad():
     for inputs, labels in train_loader:
-        if batch_count >= 100:
+        if batch_count >= 10:  # Same limit as training for consistency
             break
         inputs, labels = inputs.to(device), labels.to(device)
         all_preds.append(model(inputs).cpu().numpy())
         all_labels.append(labels.cpu().numpy())
         batch_count += 1
+        torch.cuda.empty_cache()  # Clear after every batch
 
 if all_preds:
     all_preds = np.concatenate(all_preds)
