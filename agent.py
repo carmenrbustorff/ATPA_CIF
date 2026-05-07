@@ -81,7 +81,7 @@ CRITICAL RULES - READ CAREFULLY:
    
    DATA_DIR = "/mnt/disks/data/birdclef"
    METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
-   train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=64)
+   train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
 
 3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
    - Channels: 1 (mono mel-spectrogram)
@@ -310,7 +310,7 @@ import torch.nn as nn
 
 DATA_DIR = "/mnt/disks/data/birdclef"
 METADATA_FILE = DATA_DIR + "/train.csv"
-train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=64)
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
