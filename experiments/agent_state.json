@@ -1,5 +1,5 @@
 {
-  "iteration": 36,
+  "iteration": 39,
   "best_auc": 0.0,
   "best_iteration": null,
   "history": [
@@ -200,6 +200,27 @@
       "iteration": "iter_0035_20260507_191705",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0036_20260507_194029",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0037_20260507_195107",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0038_20260507_200705",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.0036210238147262085,
+        "final_auc": 0.5554950995958283,
+        "num_params": 287658,
+        "epochs_trained": 2,
+        "batch_size": 8
+      }
     }
   ]
 }
