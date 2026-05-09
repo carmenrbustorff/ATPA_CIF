@@ -32,8 +32,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 import torch
-import torchaudio
-import torchaudio.transforms as T
+import librosa
 from torch.utils.data import DataLoader, Dataset
 
 from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
@@ -159,19 +158,13 @@ class BirdCLEFDataset(Dataset):
             self.num_classes,
         )
 
-        # ------------------------------------------------------------------
-        # Mel-spectrogram transform (constructed once; shared across workers
-        # because torchaudio transforms are stateless / thread-safe)
-        # ------------------------------------------------------------------
-        self._mel_transform = T.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            n_mels=n_mels,
-            f_min=f_min,
-            f_max=f_max,
-        )
-        self._amplitude_to_db = T.AmplitudeToDB(top_db=top_db)
+        # Store spectrogram parameters (we use librosa for transforms)
+        self.n_mels = n_mels
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.f_min = f_min
+        self.f_max = f_max
+        self.top_db = top_db
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -186,20 +179,27 @@ class BirdCLEFDataset(Dataset):
         is longer; the waveform is zero-padded when it is shorter.
         """
         try:
-            waveform, orig_sr = torchaudio.load(str(path))
+            audio, orig_sr = librosa.load(str(path), sr=None, mono=False)
+            # librosa returns numpy (N,) for mono or (channels, N) for multi-channel
+            if audio.ndim == 1:
+                audio = audio[None, :]  # add channel dim → (1, N)
         except Exception as exc:
             logger.warning("Failed to load %s: %s — returning silence", path, exc)
             return torch.zeros(1, self.clip_samples)
 
-        # Mix to mono
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-
-        # Resample if the file is not already at the target rate
+        # Resample (numpy) if needed
         if orig_sr != self.sample_rate:
-            waveform = T.Resample(orig_freq=orig_sr, new_freq=self.sample_rate)(waveform)
+            try:
+                resampled = []
+                for ch in audio:
+                    resampled_ch = librosa.resample(ch.astype(np.float32), orig_sr, self.sample_rate)
+                    resampled.append(resampled_ch)
+                audio = np.stack(resampled, axis=0)
+            except Exception:
+                # If resampling fails, fall back to converting as-is
+                pass
 
-        total_samples = waveform.shape[-1]
+        total_samples = audio.shape[-1]
 
         if total_samples >= self.clip_samples:
             # Random window extraction
@@ -209,12 +209,17 @@ class BirdCLEFDataset(Dataset):
             else:
                 # Deterministic centre crop for validation / inference
                 start = (total_samples - self.clip_samples) // 2
-            waveform = waveform[:, start : start + self.clip_samples]
+            audio_window = audio[:, start : start + self.clip_samples]
         else:
-            # Zero-pad short files on the right
+            # Zero-pad short files on the right (numpy)
             pad = self.clip_samples - total_samples
-            waveform = torch.nn.functional.pad(waveform, (0, pad))
+            audio_window = np.pad(audio, ((0, 0), (0, pad)), mode="constant")
 
+        # Mix to mono
+        if audio_window.shape[0] > 1:
+            audio_window = audio_window.mean(axis=0, keepdims=True)
+
+        waveform = torch.from_numpy(audio_window.astype(np.float32)).float()
         return waveform  # shape: (1, clip_samples)
 
     def _waveform_to_melspec(self, waveform: torch.Tensor) -> torch.Tensor:
@@ -224,10 +229,22 @@ class BirdCLEFDataset(Dataset):
 
         Values are normalised to approximately [0, 1].
         """
-        mel = self._mel_transform(waveform)          # (1, n_mels, time)
-        log_mel = self._amplitude_to_db(mel)          # (1, n_mels, time), range [-top_db, 0]
-        log_mel = (log_mel + TOP_DB) / TOP_DB         # normalise to [0, 1]
-        return log_mel.float()
+        # waveform: (1, clip_samples) torch.Tensor -> use librosa on numpy
+        y = waveform.squeeze(0).numpy().astype(np.float32)
+        mel = librosa.feature.melspectrogram(
+            y=y,
+            sr=self.sample_rate,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            n_mels=self.n_mels,
+            fmin=self.f_min,
+            fmax=self.f_max,
+            power=2.0,
+        )
+        log_mel = librosa.power_to_db(mel, top_db=self.top_db)  # range [-top_db, 0]
+        log_mel = (log_mel + self.top_db) / self.top_db  # normalise to [0, 1]
+        spec = torch.from_numpy(log_mel.astype(np.float32)).unsqueeze(0)
+        return spec.float()
 
     # ------------------------------------------------------------------
     # Dataset interface
