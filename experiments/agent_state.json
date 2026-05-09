@@ -1,5 +1,5 @@
 {
-  "iteration": 2,
+  "iteration": 39,
   "best_auc": 0.0,
   "best_iteration": null,
   "history": [
@@ -12,6 +12,215 @@
       "iteration": "iter_0001_20260430_163329",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0002_20260507_123538",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0003_20260507_123858",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0004_20260507_124023",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0005_20260507_124201",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0006_20260507_124359",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0007_20260507_124538",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0008_20260507_124704",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0009_20260507_124849",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0010_20260507_125007",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0011_20260507_125147",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0012_20260507_125249",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0013_20260507_125425",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0014_20260507_125546",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0015_20260507_125719",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0016_20260507_130002",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0017_20260507_131034",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0018_20260507_131544",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0019_20260507_131715",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0020_20260507_141659",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0021_20260507_142006",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0022_20260507_142129",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0023_20260507_142653",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0024_20260507_143144",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0025_20260507_143453",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0026_20260507_143821",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0027_20260507_153217",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0028_20260507_154814",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0029_20260507_155255",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.0,
+        "final_auc": 0.0,
+        "num_params": 67498,
+        "epochs_trained": 3,
+        "batch_size": 32
+      }
+    },
+    {
+      "iteration": "iter_0030_20260507_155703",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0031_20260507_160944",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.025421002246917058,
+        "final_auc": null,
+        "num_params": 430698,
+        "epochs_trained": 3,
+        "batch_size": 32
+      }
+    },
+    {
+      "iteration": "iter_0032_20260507_161616",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.02565951645374298,
+        "final_auc": NaN,
+        "num_params": 105066,
+        "epochs_trained": 3,
+        "batch_size": 32
+      }
+    },
+    {
+      "iteration": "iter_0033_20260507_162354",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0034_20260507_162939",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0035_20260507_191705",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0036_20260507_194029",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0037_20260507_195107",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0038_20260507_200705",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.0036210238147262085,
+        "final_auc": 0.5554950995958283,
+        "num_params": 287658,
+        "epochs_trained": 2,
+        "batch_size": 8
+      }
     }
   ]
 }
