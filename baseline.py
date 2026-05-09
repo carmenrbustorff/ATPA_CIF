@@ -17,15 +17,19 @@ from data_loader import BirdCLEFDataset, METADATA_CSV, AUDIO_DIR
 dataset = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR)
 n_val = int(len(dataset) * 0.2)
 train_set, val_set = random_split(dataset, [len(dataset) - n_val, n_val])
-train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_set, batch_size=32)
+train_loader = DataLoader(train_set, batch_size=32, shuffle=True,
+                           num_workers=3, pin_memory=True, persistent_workers=True)
+val_loader = DataLoader(val_set, batch_size=32,
+                         num_workers=3, pin_memory=True, persistent_workers=True)
 
 # 2. Build model — same as `keras.Sequential([...])` from the CNN notebook
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = build_simple_cnn_torch(num_classes=NUM_SPECIES).to(device)
 
 # 3. Compile — same as `model.compile(optimizer="adam", loss=...)`
-criterion = nn.BCEWithLogitsLoss()  # multi-label, like sigmoid+BCE in Keras
+# NOTE: build_simple_cnn_torch already applies sigmoid internally,
+# so we use BCELoss (not BCEWithLogitsLoss) to avoid double-sigmoid.
+criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
 # 4. Fit — same as `model.fit(x_train, y_train, epochs=5)`
@@ -47,9 +51,9 @@ for epoch in range(5):
         for x, y in val_loader:
             x = x.to(device)
             if y.dim() == 1:
-                y = torch.nn.functional.one_hot(y, NUM_SPECIES).float()
+                y = torch.nn.functional.one_hot(y.long(), NUM_SPECIES).float()
             ys.append(y.numpy())
-            ps.append(torch.sigmoid(model(x)).cpu().numpy())
+            ps.append(model(x).cpu().numpy())  # already in [0,1] from model's sigmoid
     y_true, y_prob = np.concatenate(ys), np.concatenate(ps)
     present = y_true.sum(axis=0) > 0
     auc = roc_auc_score(y_true[:, present], y_prob[:, present], average="macro")
