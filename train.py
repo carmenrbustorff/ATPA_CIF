@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -36,6 +36,10 @@ def parse_args():
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
     p.add_argument("--llm-name", default="manual")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--use-cache", action="store_true", 
+                  help="Use precomputed cached spectrograms (requires cache_spectrograms.py first)")
+    p.add_argument("--cache-dir", type=Path, default=Path("/tmp/birdclef-specs"),
+                  help="Directory with cached spectrograms (if --use-cache is set)")
     return p.parse_args()
 
 
@@ -71,25 +75,42 @@ def build_model(name, num_classes):
 def forward_batch(model, x, expand_rgb):
     if expand_rgb:
         x = x.expand(-1, 3, -1, -1)
-    return model(x)
+    return model(x)  # Returns logits
 
 
 @torch.no_grad()
 def validate(model, loader, criterion, device, num_classes, expand_rgb):
     model.eval()
-    losses, ys, ps = [], [], []
+    losses, y_true_list, y_pred_list = [], [], []
     for x, y in loader:
         x = x.to(device, non_blocking=True)
-        y = to_multilabel(y.to(device), num_classes)
-        with autocast():
-            probs = forward_batch(model, x, expand_rgb)  # models apply sigmoid internally
-            loss = criterion(probs, y)
+        y_device = y.to(device)
+        y_multilabel = to_multilabel(y_device, num_classes)
+        with autocast(device_type=device.type):
+            logits = forward_batch(model, x, expand_rgb)  # logits
+            loss = criterion(logits, y_multilabel)  # BCEWithLogitsLoss
         losses.append(loss.item())
-        ys.append(y.cpu().numpy())
-        ps.append(probs.float().cpu().numpy())
-    y_true, y_prob = np.concatenate(ys), np.concatenate(ps)
-    present = y_true.sum(axis=0) > 0
-    auc = roc_auc_score(y_true[:, present], y_prob[:, present], average="macro")
+        y_true_list.append(y.cpu().numpy())  # store original class indices
+        # Apply sigmoid to get probabilities for AUC
+        probs = torch.sigmoid(logits).float().cpu().numpy()
+        y_pred_list.append(probs)
+    
+    y_true_idx = np.concatenate(y_true_list)  # shape: (n_samples,)
+    y_prob = np.concatenate(y_pred_list)  # shape: (n_samples, num_classes)
+    
+    # Convert class indices to one-hot encoding
+    y_true_onehot = np.zeros((y_true_idx.shape[0], num_classes))
+    y_true_onehot[np.arange(y_true_idx.shape[0]), y_true_idx] = 1.0
+    
+    # Only compute AUC for classes that appear in validation set
+    present = y_true_onehot.sum(axis=0) > 0
+    if present.sum() == 0:
+        auc = 0.0
+    else:
+        try:
+            auc = roc_auc_score(y_true_onehot[:, present], y_prob[:, present], average="macro")
+        except (ValueError, ZeroDivisionError):
+            auc = 0.0
     return float(np.mean(losses)), float(auc)
 
 
@@ -100,9 +121,9 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, num_cla
         x = x.to(device, non_blocking=True)
         y = to_multilabel(y.to(device), num_classes)
         optimizer.zero_grad(set_to_none=True)
-        with autocast():
-            probs = forward_batch(model, x, expand_rgb)  # models apply sigmoid internally
-            loss = criterion(probs, y)
+        with autocast(device_type=device.type):
+            logits = forward_batch(model, x, expand_rgb)  # logits
+            loss = criterion(logits, y)  # BCEWithLogitsLoss
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -133,25 +154,32 @@ def main():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {device}")
 
-        full = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR, augment=args.augment)
+        # Load dataset (cached or on-the-fly)
+        if args.use_cache:
+            print("Loading cached dataset...")
+            from data_loader_cached import BirdCLEFCachedDataset
+            full = BirdCLEFCachedDataset(metadata_csv=METADATA_CSV, cache_dir=args.cache_dir)
+        else:
+            full = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR, augment=args.augment)
+        
         train_idx, val_idx, dropped = stratified_split(full, args.val_split, args.seed)
         train_set = Subset(full, train_idx)
         val_set = Subset(full, val_idx)
         print(f"Train: {len(train_idx)}  Val: {len(val_idx)}  Dropped: {dropped}  Classes: {NUM_SPECIES}")
 
-        loader_kw = dict(num_workers=NUM_WORKERS, pin_memory=(device.type == "cuda"),
-                          persistent_workers=(NUM_WORKERS > 0))
+        loader_kw = dict(num_workers=0, pin_memory=(device.type == "cuda"),
+                          persistent_workers=False)
         train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, **loader_kw)
         val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, **loader_kw)
 
         model = build_model(args.model, NUM_SPECIES).to(device)
         expand_rgb = (args.model == "efficientnet_torch")
-        criterion = nn.BCELoss()  # models apply sigmoid internally
+        criterion = nn.BCEWithLogitsLoss()  # logits input + sigmoid internally
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr, weight_decay=args.weight_decay
         )
-        scaler = GradScaler(enabled=(device.type == "cuda"))
+        scaler = GradScaler(device=device.type, enabled=(device.type == "cuda"))
 
         best_auc = 0.0
         patience_counter = 0

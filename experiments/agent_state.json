@@ -1,7 +1,7 @@
 {
-  "iteration": 39,
-  "best_auc": 0.0,
-  "best_iteration": null,
+  "iteration": 52,
+  "best_auc": 0.5291526064407374,
+  "best_iteration": "iter_0049_20260513_145457",
   "history": [
     {
       "iteration": "iter_0000_20260430_163003",
@@ -221,6 +221,93 @@
         "epochs_trained": 2,
         "batch_size": 8
       }
+    },
+    {
+      "iteration": "iter_0039_20260513_122926",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.0036151581150450276,
+        "final_auc": 0.5418142994390127,
+        "num_params": 123818,
+        "epochs_trained": 2,
+        "batch_size": 8
+      }
+    },
+    {
+      "iteration": "iter_0040_20260513_123947",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0041_20260513_125251",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0042_20260513_125932",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0043_20260513_141813",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0044_20260513_142308",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0045_20260513_142630",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0046_20260513_143012",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0047_20260513_144348",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0048_20260513_144851",
+      "auc": 0.0,
+      "metrics": {
+        "final_train_loss": 0.6910014808177948,
+        "final_auc": 0.49679345136991127,
+        "num_params": 139818,
+        "epochs_trained": 2,
+        "batch_size": 16,
+        "training_samples": 160,
+        "eval_samples": 35549
+      }
+    },
+    {
+      "iteration": "iter_0049_20260513_145457",
+      "auc": 0.5291526064407374,
+      "metrics": {
+        "final_train_loss": 0.34211707711219785,
+        "final_auc": 0.5291526064407374,
+        "num_params": 57514,
+        "epochs_trained": 2,
+        "batch_size": 16,
+        "training_samples": 320,
+        "eval_samples": 320
+      }
+    },
+    {
+      "iteration": "iter_0050_20260513_145708",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0051_20260513_145926",
+      "auc": 0.0,
+      "metrics": {}
     }
   ]
 }
