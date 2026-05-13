@@ -64,6 +64,8 @@ TASK_CONTEXT_TEMPLATE = """\
 Task: BirdCLEF+ 2026 – Track B (audio classification)
 Goal: Multi-label classification of {num_species} bird species from mel-spectrograms.
 
+Current iteration: {iteration_num}
+
 CRITICAL RULES - READ CAREFULLY:
 0. IMPORTS (MANDATORY): Your code MUST start with these exact imports. Do not skip any:
    import os
@@ -107,6 +109,44 @@ CRITICAL RULES - READ CAREFULLY:
    - Report loss after each epoch with tqdm progress bar
    - Include torch.cuda.empty_cache() after each epoch to prevent OOM
    
+6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
+    Each iteration should try different hyperparameters to accelerate convergence.
+    Use this heuristic based on iteration number to vary systematically:
+    
+    BATCH SIZE OPTIONS (choose one):
+    - Iteration % 3 == 0: batch_size = 8  (small, memory-efficient)
+    - Iteration % 3 == 1: batch_size = 16 (medium, balanced)
+    - Iteration % 3 == 2: batch_size = 32 (large, GPU-friendly if possible)
+    
+    LEARNING RATE OPTIONS (choose one):
+    - Iteration % 3 == 0: lr = 0.001  (standard)
+    - Iteration % 3 == 1: lr = 0.0001 (reduced for fine-tuning)
+    - Iteration % 3 == 2: lr = 0.00001 (very conservative)
+    
+    ARCHITECTURE DEPTH (choose one):
+    - Iteration % 3 == 0: Use 2 Conv layers (shallow, fast)
+    - Iteration % 3 == 1: Use 3 Conv layers (standard depth)
+    - Iteration % 3 == 2: Use 4 Conv layers (deep, more capacity)
+    
+    REGULARIZATION OPTIONS:
+    - Vary dropout: 0.0 → 0.2 → 0.5
+    - Vary BatchNorm: include after conv → include everywhere → sparse placement
+    - Vary L2 regularization: 0 → 0.0001 → 0.001
+    
+    CONSTRAINTS:
+    - ALWAYS use AdaptiveAvgPool2d(1,1) for robust flattening
+    - ALWAYS use BCELoss + Sigmoid activation (multi-label)
+    - ALWAYS use Adam optimizer
+    - ALWAYS limit to 2 epochs for speed (full training later)
+    
+    Example iteration sequence:
+    - Iter 1 (1%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.2
+    - Iter 2 (2%3=2): batch=32, lr=0.00001, 4 conv, dropout=0.5
+    - Iter 3 (3%3=0): batch=8, lr=0.001, 2 conv, dropout=0.0
+    - Iter 4 (4%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.3  (vary)
+    
+    This systematic variation helps find good hyperparameters faster.
+
 7. TRAINING LOOP:
    - Write a standard PyTorch training loop
    - Move model and data to CUDA with .to('cuda')
@@ -613,6 +653,7 @@ def run_agent(
             previous_results_text = json.dumps(state["history"][-1], indent=2)
 
         task_context = TASK_CONTEXT_TEMPLATE.format(
+            iteration_num=i + 1,
             num_species=NUM_SPECIES,
             dataset_summary=json.dumps(dataset_summary, indent=2),
             best_result=best_result_str,
