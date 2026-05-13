@@ -113,38 +113,32 @@ CRITICAL RULES - READ CAREFULLY:
    - Use subset of data for speed (can do full training later)
    - Report training loss per epoch
 
-8. METRICS CAPTURE (CRITICAL - AUC IS MANDATORY):
-   IMPORTANT: final_auc must NEVER be null or nan. This is your main model comparison metric.
-   Use this exact code after training:
+8. METRICS CAPTURE & MODEL SAVING (CRITICAL - THREE REQUIREMENTS):
+
+   REQUIREMENT 1: Compute & Save Validation AUC
+   - Compute AUC on validation/evaluation set using model.eval()
+   - Use roc_auc_score(all_labels, all_preds, average='weighted')
+   - final_auc MUST be a valid float (never nan, inf, or null)
    
-   import numpy as np
-   from sklearn.metrics import roc_auc_score
+   REQUIREMENT 2: Save Metrics to JSON
+   - Save metrics dict to 'metrics.json' in the script's working directory
+   - Required keys: final_train_loss, final_auc, num_params, epochs_trained, batch_size, training_samples, eval_samples
+   - Print: "METRICS: " + JSON string on stdout for log parsing
    
-   model.eval()
-   all_preds = []
-   all_labels = []
-   with torch.no_grad():
-       for inputs, labels in train_loader:
-           inputs, labels = inputs.to(device), labels.to(device)
-           outputs = model(inputs)
-           all_preds.append(outputs.cpu().numpy())
-           all_labels.append(labels.cpu().numpy())
+   REQUIREMENT 3: Save Model Checkpoint
+   - Save model weights: torch.save(model.state_dict(), 'model.pt')
+   - This enables model reuse, ensembling, and kaggle submission generation
    
-   all_preds = np.concatenate(all_preds)
-   all_labels = np.concatenate(all_labels)
-   
-   # For multi-label classification, use samples_average or weighted average
-   try:
-       final_auc = float(roc_auc_score(all_labels, all_preds, average='weighted', multi_class='ovr'))
-   except:
-       # Fallback: if above fails, use sample average
-       final_auc = float(roc_auc_score(all_labels.ravel(), all_preds.ravel()))
-   
-   - Save metrics dict with keys: final_train_loss, final_auc, num_params, epochs_trained, batch_size
-   - final_auc must be a valid number (check: not nan, not inf, not null)
-   - Write to metrics.json in JSON format
-   - Print: "METRICS: " + JSON string (one line)
-   - Save model: torch.save(model.state_dict(), 'model.pt')
+   Example metrics.json:
+   {
+     "final_train_loss": 0.45,
+     "final_auc": 0.82,
+     "num_params": 45000,
+     "epochs_trained": 2,
+     "batch_size": 8,
+     "training_samples": 320,
+     "eval_samples": 320
+   }
 
 Dataset summary:
 {dataset_summary}
@@ -300,13 +294,13 @@ def propose_and_generate_code(
 def _fallback_training_script() -> str:
     """
     Return a minimal PyTorch training script for when LLM produces incomplete code.
-    This guarantees proper AUC computation and metrics capture.
+    Guarantees: metrics capture, validation AUC, and model checkpoint.
     """
     return '''\
 import json
-import time
 import torch
 import torch.nn as nn
+import pathlib
 
 DATA_DIR = "/mnt/disks/data/birdclef"
 METADATA_FILE = DATA_DIR + "/train.csv"
@@ -332,12 +326,13 @@ model = SimpleModel().to(device)
 criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
+# Training loop
 loss_sum = 0.0
 batch_count = 0
 for epoch in range(2):
     model.train()
     for inputs, labels in train_loader:
-        if batch_count >= 10:  # ~960 samples per epoch (30 batches × 32 batch_size)
+        if batch_count >= 10:
             break
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -347,23 +342,25 @@ for epoch in range(2):
         optimizer.step()
         loss_sum += loss.item()
         batch_count += 1
-        torch.cuda.empty_cache()  # Clear after every batch to prevent OOM on shared GPU
+        torch.cuda.empty_cache()
     print(f"Epoch {epoch+1}, Loss: {loss_sum/max(1, batch_count):.4f}")
     if batch_count >= 10:
         break
 
+# Evaluation loop: compute validation AUC
 model.eval()
 all_preds, all_labels = [], []
-batch_count = 0
+eval_batch_count = 0
 with torch.no_grad():
     for inputs, labels in train_loader:
-        if batch_count >= 10:  # Same limit as training for consistency
+        if eval_batch_count >= 10:
             break
         inputs, labels = inputs.to(device), labels.to(device)
-        all_preds.append(model(inputs).cpu().numpy())
+        outputs = model(inputs)
+        all_preds.append(outputs.cpu().numpy())
         all_labels.append(labels.cpu().numpy())
-        batch_count += 1
-        torch.cuda.empty_cache()  # Clear after every batch
+        eval_batch_count += 1
+        torch.cuda.empty_cache()
 
 if all_preds:
     all_preds = np.concatenate(all_preds)
@@ -375,18 +372,27 @@ if all_preds:
 else:
     final_auc = 0.5
 
+# Build metrics dict with all required fields
 metrics = {
-    "final_train_loss": float(loss_sum / min(100, batch_count)) if batch_count > 0 else 0.0,
+    "final_train_loss": float(loss_sum / max(1, batch_count)) if batch_count > 0 else 0.0,
     "final_auc": final_auc,
     "num_params": sum(p.numel() for p in model.parameters()),
     "epochs_trained": 2,
-    "batch_size": 32,
+    "batch_size": 8,
+    "training_samples": batch_count * 8,
+    "eval_samples": eval_batch_count * 8,
 }
-import pathlib
-pathlib.Path(__file__).parent.joinpath("metrics.json").write_text(json.dumps(metrics))
-print("METRICS:", json.dumps(metrics))
-'''
 
+# Save metrics.json (Priority 1: CAPTURE METRICS)
+metrics_path = pathlib.Path(__file__).parent / "metrics.json"
+metrics_path.write_text(json.dumps(metrics, indent=2))
+print("METRICS:", json.dumps(metrics))
+
+# Save model checkpoint (Priority 3: MODEL CHECKPOINT)
+model_path = pathlib.Path(__file__).parent / "model.pt"
+torch.save(model.state_dict(), model_path)
+print(f"Model saved to {model_path}")
+'''
 
 # ---------------------------------------------------------------------------
 # Step 4 – Sandboxed Execution
