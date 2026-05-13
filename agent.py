@@ -177,11 +177,22 @@ CRITICAL RULES - READ CAREFULLY:
     
     This systematic variation helps find good hyperparameters faster.
 
-7. TRAINING LOOP:
+7. TRAINING LOOP & LOSS FUNCTION:
    - Write a standard PyTorch training loop
    - Move model and data to CUDA with .to('cuda')
    - Use subset of data for speed (can do full training later)
    - Report training loss per epoch
+   
+   CRITICAL: BCELoss requires outputs in [0, 1] range!
+   ❌ WRONG:
+       outputs = model(inputs)  # Raw logits from Linear layer
+       loss = criterion(outputs, labels)  # BCELoss fails: expects [0,1], gets unbounded
+   ✅ RIGHT:
+       outputs = model(inputs)  # Raw logits from Linear layer
+       outputs = torch.sigmoid(outputs)  # Convert to [0,1]
+       loss = criterion(outputs, labels)  # BCELoss works!
+   
+   Alternative: Add sigmoid to the model's forward() method so it returns [0,1] directly.
 
 8. METRICS CAPTURE & MODEL SAVING (CRITICAL - THREE REQUIREMENTS):
 
@@ -480,8 +491,10 @@ def execute_script(script_path: Path, timeout: int = MAX_EXEC_TIMEOUT) -> Dict:
     logger.info("Step 4: Executing generated script (timeout=%ds)…", timeout)
     t0 = time.time()
     try:
+        # Use .venv Python to ensure PyTorch and dependencies are available
+        venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
         proc = subprocess.run(
-            [sys.executable, str(script_path)],
+            [str(venv_python), str(script_path)],
             cwd=str(script_path.parent),
             capture_output=True,
             text=True,
