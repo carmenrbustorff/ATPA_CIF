@@ -104,10 +104,34 @@ CRITICAL RULES - READ CAREFULLY:
 
 5. ARCHITECTURE: Write a PyTorch CNN class that correctly flattens intermediate features.
    Use AdaptiveAvgPool2d for robust dimension handling across training batches.
-   Example pattern:
-   - Conv2d layers to extract features
-   - Use AdaptiveAvgPool2d(output_size=(1, 1)) to flatten robustly
-   - Linear layers for classification
+   
+   CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
+   ⚠️ NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+   
+   Correct structure:
+   - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
+   - Conv2d(C1, C2) → BatchNorm2d(C2) → ReLU  (Note: C2 matches Conv output!)
+   - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, 234)
+   
+   ❌ WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
+   ✅ RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
+   
+   Example correct model:
+   ```python
+   self.conv_layers = nn.Sequential(
+       nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+       nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+   )
+   self.pool = nn.AdaptiveAvgPool2d((1, 1))
+   self.classifier = nn.Sequential(
+       nn.Linear(64, 128), nn.ReLU(),
+       nn.Linear(128, 234)  # NO BatchNorm1d!
+   )
+   def forward(self, x):
+       x = self.conv_layers(x)
+       x = self.pool(x).view(x.size(0), -1)
+       return torch.sigmoid(self.classifier(x))
+   ```
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
    - Use 2-3 epochs maximum (not 5+) for quick iteration
