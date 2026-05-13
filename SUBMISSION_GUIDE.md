@@ -19,16 +19,127 @@ This creates `submission_pytorch.ipynb` with:
 - ✅ Submission CSV generation
 - ✅ Runtime budget tracking (90 min)
 
-### Step 2: Upload to Kaggle Notebook
+### Step 2: Prepare Your Model for Kaggle
+
+**Your trained model location (LOCAL MACHINE):**
+```
+/home/carme/ATPA_CIF/experiments/iter_0049_20260513_145457/model.pt  (231 KB)
+```
+
+**Option A: Embed Model in Notebook (EASIEST)**
+The `submission_pytorch.ipynb` already has the model weights embedded! Just:
 
 1. Go to [BirdCLEF+ 2026 Competition](https://www.kaggle.com/competitions/birdclef-2026)
-2. Create a **New Notebook**
-3. Upload `submission_pytorch.ipynb`
-4. Set data sources:
-   - `birdclef-2026` (main dataset)
-   - `birdclef-pytorch-weights` (your model folder)
+2. Click **Create → New Notebook**
+3. Copy & paste code from `submission_pytorch.ipynb` into the notebook
+4. In the first cell, add only this data source:
+   - Input: `birdclef-2026` (the competition dataset with test audio)
 5. Run all cells
-6. Submit `submission.csv`
+6. Download and submit `submission.csv`
+
+**Option B: Use Kaggle Dataset (FOR MULTIPLE NOTEBOOKS)**
+If you want to reuse the model across notebooks:
+
+1. Create a new Kaggle Dataset with your model folder
+2. Upload `/home/carme/ATPA_CIF/experiments/iter_0049_20260513_145457/` 
+3. Publish as dataset (e.g., "birdclef-pytorch-weights")
+4. In your notebook, attach both:
+   - `birdclef-2026` (competition data)
+   - `birdclef-pytorch-weights` (your model dataset)
+5. Load model from `/kaggle/input/birdclef-pytorch-weights/iter_0049_20260513_145457/model.pt`
+
+**⚠️ RECOMMENDED: Use Option A**
+- Simpler (no dataset creation needed)
+- Faster (model embedded inline)
+- Model already included in `submission_pytorch.ipynb`
+
+---
+
+## Where Your Model Is & How It Works
+
+### File Organization
+
+```
+YOUR LOCAL MACHINE (/home/carme/ATPA_CIF/):
+│
+├─ agent.py
+│  └─ Autonomously generates training scripts
+│     and evaluates them on GPU
+│
+├─ generate_pytorch_submission.py
+│  └─ Creates submission_pytorch.ipynb from trained model
+│
+├─ submission_pytorch.ipynb  ← UPLOAD THIS TO KAGGLE
+│  └─ Self-contained notebook with embedded model weights
+│
+└─ experiments/
+   ├─ agent_state.json               (tracks best iteration)
+   ├─ iter_0049_20260513_145457/     (BEST MODEL - AUC 0.5292)
+   │  ├─ model.pt                    ← 231 KB weights file
+   │  ├─ metrics.json                (loss, AUC, hyperparams)
+   │  ├─ train.py                    (how this model was trained)
+   │  └─ execution.json              (runtime logs)
+   │
+   ├─ iter_0050_20260513_145708/
+   ├─ iter_0051_20260513_145926/
+   └─ ... (50+ other iterations)
+
+KAGGLE NOTEBOOK ENVIRONMENT:
+│
+├─ /kaggle/input/
+│  ├─ birdclef-2026/                 (competition dataset)
+│  │  └─ test_soundscapes/           (audio files to predict)
+│  │
+│  └─ birdclef-pytorch-weights/      (OPTIONAL - only if using Option B)
+│     └─ iter_0049_20260513_145457/model.pt
+│
+└─ /kaggle/output/
+   └─ submission.csv                 (your predictions)
+```
+
+### Why Two Options?
+
+**Option A: Embedded (Easier)**
+- Model weights are encoded inside `submission_pytorch.ipynb`
+- You upload ONLY the notebook to Kaggle
+- No separate dataset needed
+- Notebook is self-contained
+
+**Option B: Dataset (For Reuse)**
+- You upload model to Kaggle as a dataset
+- Useful if you want multiple notebooks using same weights
+- Notebook references `/kaggle/input/birdclef-pytorch-weights/`
+- More flexible for ensemble experiments
+
+### The Model Inside the Notebook
+
+When you open `submission_pytorch.ipynb`, the first cells contain:
+
+```python
+# Cell 1: Import libraries
+import torch
+import numpy as np
+import pandas as pd
+import librosa
+
+# Cell 2: Define model architecture
+class BirdCLEFModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Conv layers, normalization, etc.
+        # (same architecture that was trained)
+
+# Cell 3: Load embedded weights
+model = BirdCLEFModel()
+model.load_state_dict(...)  # Pre-loaded weights
+model.eval()  # Inference mode
+
+# Cell 4-7: Process audio and generate predictions
+for soundscape_file in test_files:
+    audio_chunks = librosa.feature.melspectrogram(...)
+    predictions = model(audio_chunks)
+    # Save to CSV...
+```
 
 ### Step 3: Monitor Execution
 
