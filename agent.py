@@ -79,17 +79,27 @@ CRITICAL RULES - READ CAREFULLY:
    
 1. STRICTLY PYTORCH: You are absolutely forbidden from using TensorFlow, Keras, or `model.fit()`. 
 2. DATA INGESTION: You must use our pre-built PyTorch DataLoader. Do not write your own data loaders.
-   Use this code after imports:
-   
-   DATA_DIR = "/mnt/disks/data/birdclef"
-   METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
-   train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
-   
-   IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
-   ❌ WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
-   ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
-   
-   For validation, use the same train_loader in eval mode (see section 8).
+    Use this code after imports:
+    
+    DATA_DIR = "/mnt/disks/data/birdclef"
+    METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+    train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
+    
+    IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
+    ❌ WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
+    ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
+    
+    For validation, use the same train_loader in eval mode (see section 8).
+    
+    IMPORTANT: Dataset has NO limit_samples() method!
+    ❌ WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
+    ✅ RIGHT: Use batch_count tracking to limit iterations:
+       batch_count = 0
+       for inputs, labels in train_loader:
+           if batch_count >= 10:  # Limit to N batches for fast feedback
+               break
+           # ... training code ...
+           batch_count += 1
 
 3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
    - Channels: 1 (mono mel-spectrogram)
