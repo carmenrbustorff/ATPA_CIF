@@ -626,7 +626,7 @@ def save_state(experiments_dir: Path, state: Dict) -> None:
 def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
     """Update state with the latest iteration results."""
     metrics = results.get("metrics", {})
-    auc = metrics.get("final_val_auc", 0.0)
+    auc = metrics.get("final_auc", 0.0)  # Changed from final_val_auc to final_auc
     if auc > state["best_auc"]:
         state["best_auc"] = auc
         state["best_iteration"] = iteration_id
