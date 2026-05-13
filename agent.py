@@ -130,7 +130,7 @@ CRITICAL RULES - READ CAREFULLY:
    - This enables model reuse, ensembling, and kaggle submission generation
    
    Example metrics.json:
-   {
+   {{
      "final_train_loss": 0.45,
      "final_auc": 0.82,
      "num_params": 45000,
@@ -138,7 +138,7 @@ CRITICAL RULES - READ CAREFULLY:
      "batch_size": 8,
      "training_samples": 320,
      "eval_samples": 320
-   }
+   }}
 
 Dataset summary:
 {dataset_summary}
