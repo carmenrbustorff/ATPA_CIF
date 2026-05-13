@@ -84,6 +84,12 @@ CRITICAL RULES - READ CAREFULLY:
    DATA_DIR = "/mnt/disks/data/birdclef"
    METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
    train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
+   
+   IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
+   ❌ WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
+   ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
+   
+   For validation, use the same train_loader in eval mode (see section 8).
 
 3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
    - Channels: 1 (mono mel-spectrogram)
@@ -156,7 +162,9 @@ CRITICAL RULES - READ CAREFULLY:
 8. METRICS CAPTURE & MODEL SAVING (CRITICAL - THREE REQUIREMENTS):
 
    REQUIREMENT 1: Compute & Save Validation AUC
-   - Compute AUC on validation/evaluation set using model.eval()
+   - CRITICAL: get_dataloader() returns ONE dataloader only. Use it in eval mode for validation.
+   - Do NOT try to unpack into train_loader, val_loader - that won't work!
+   - Validation = same train_loader but with model.eval() and torch.no_grad()
    - Use roc_auc_score(all_labels, all_preds, average='weighted')
    - final_auc MUST be a valid float (never nan, inf, or null)
    
