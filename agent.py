@@ -144,10 +144,12 @@ CRITICAL RULES - READ CAREFULLY:
    ```
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
-   - Use 2-3 epochs maximum (not 5+) for quick iteration
-   - Use limited training samples: train on first ~5000 samples for fast feedback
-   - Report loss after each epoch with tqdm progress bar
-   - Include torch.cuda.empty_cache() after each epoch to prevent OOM
+    - Use 2 epochs maximum for quick iteration
+    - Use limited training samples: train on first ~5000 samples (~10 batches) for fast feedback
+    - Report loss per batch, not per epoch (shows progress)
+    - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
+    - Memory safety: If you get OOM, reduce batch_size and try again
+    - Do NOT train the full dataset (saves time and memory)
    
 6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
     Each iteration should try different hyperparameters to accelerate convergence.
