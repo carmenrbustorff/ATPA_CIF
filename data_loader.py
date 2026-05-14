@@ -93,7 +93,7 @@ class BirdCLEFDataset(Dataset):
     Parameters
     ----------
     metadata_csv:
-        Path to train.csv.
+        Path to ``train.csv``.
     audio_dir:
         Root directory that contains per-species sub-directories of OGG files.
     sample_rate:
@@ -111,7 +111,7 @@ class BirdCLEFDataset(Dataset):
     top_db:
         Dynamic range for AmplitudeToDB.
     augment:
-        If True, apply random time-shift augmentation (training only).
+          If True, apply random time-shift augmentation (training only).
     """
 
     def __init__(
@@ -181,7 +181,7 @@ class BirdCLEFDataset(Dataset):
         Load an OGG file and return a mono waveform of exactly
         self.clip_samples frames.
 
-        A random clip_samples-length window is extracted when the file
+        A random ``self.clip_samples``-length window is extracted when the file
         is longer; the waveform is zero-padded when it is shorter.
         """
         try:
@@ -261,7 +261,7 @@ def build_dataloader(
     Parameters
     ----------
     metadata_csv:
-        Path to train.csv.
+        Path to ``train.csv``.
     audio_dir:
         Root directory of the OGG training audio files.
     batch_size:
@@ -271,7 +271,8 @@ def build_dataloader(
     num_workers:
         Sub-processes for data loading. Defaults to min(3, cpu_count-1).
     pin_memory:
-        Enables faster CPU->GPU transfers via pinned memory.
+        Enables faster CPU->GPU transfers via pinned memory. Set True when
+        running on a CUDA-capable host.
     augment:
         Pass True during training to enable random window extraction.
     prefetch_factor:
