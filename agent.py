@@ -90,6 +90,11 @@ CRITICAL RULES - READ CAREFULLY:
     ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
     
     For validation, use the same train_loader in eval mode (see section 8).
+
+    CRITICAL API CONSTRAINTS:
+    - Do NOT call train_loader.dataset.set_mode(...): this method does not exist.
+    - Do NOT unpack get_dataloader into train/val loaders.
+    - Do NOT use limit_samples(); limit work with a batch counter in the loop.
     
     IMPORTANT: Dataset has NO limit_samples() method!
     ❌ WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
@@ -257,6 +262,44 @@ def extract_code_blocks(text: str) -> list[str]:
     return [stripped] if stripped else []
 
 
+def validate_generated_code(code: str) -> Dict[str, list[str]]:
+    """
+    Validate generated training code against known project API constraints.
+
+    Returns a dict with:
+      - blockers: patterns that should trigger fallback script usage
+      - warnings: non-fatal issues worth logging
+    """
+    blocked_patterns = [
+        (r"\bset_mode\s*\(", "Uses set_mode(), but BirdCLEFDataset has no set_mode() API."),
+        (
+            r"\b\w+\s*,\s*\w+\s*=\s*get_dataloader\s*\(",
+            "Unpacks get_dataloader() into multiple loaders, but it returns one loader.",
+        ),
+        (r"\blimit_samples\s*\(", "Uses limit_samples(), but dataset has no limit_samples() API."),
+        (r"\bmodel\.fit\s*\(", "Uses model.fit(), but only manual PyTorch loops are supported."),
+        (r"\bimport\s+tensorflow\b", "Imports TensorFlow, which is forbidden in this pipeline."),
+        (r"\bfrom\s+tensorflow\b", "Imports TensorFlow, which is forbidden in this pipeline."),
+        (r"\bimport\s+keras\b", "Imports Keras, which is forbidden in this pipeline."),
+        (r"\bfrom\s+keras\b", "Imports Keras, which is forbidden in this pipeline."),
+    ]
+    warnings = []
+    blockers = []
+
+    for pattern, message in blocked_patterns:
+        if re.search(pattern, code, re.IGNORECASE):
+            blockers.append(message)
+
+    if "metrics.json" not in code:
+        warnings.append("Generated code does not explicitly mention metrics.json writing.")
+    if "METRICS:" not in code:
+        warnings.append("Generated code does not explicitly print METRICS: line for log parsing.")
+    if "model.pt" not in code:
+        warnings.append("Generated code does not explicitly mention saving model.pt checkpoint.")
+
+    return {"blockers": blockers, "warnings": warnings}
+
+
 # ---------------------------------------------------------------------------
 # Step 1 – Data Exploration
 # ---------------------------------------------------------------------------
@@ -326,9 +369,14 @@ def propose_and_generate_code(
     Path to the generated script.
     """
     logger.info("Step 2: Requesting architecture proposal from LLM (%s)…", llm.model)
-    response = llm.propose_architecture(task_context, previous_results)
+    response = ""
+    try:
+        response = llm.propose_architecture(task_context, previous_results)
+    except Exception as exc:
+        logger.warning("LLM proposal failed, using fallback script: %s", exc)
+        (iteration_dir / "llm_error.txt").write_text(str(exc), encoding="utf-8")
 
-    # Save the raw LLM response
+    # Save the raw LLM response (if any)
     (iteration_dir / "llm_proposal.txt").write_text(response, encoding="utf-8")
     logger.info("LLM proposal saved.")
 
@@ -379,6 +427,20 @@ def propose_and_generate_code(
             continue
         filtered_lines.append(line)
     code = '\n'.join(filtered_lines)
+
+    # Validate generated code and fallback early on known API-incompatible patterns.
+    checks = validate_generated_code(code)
+    (iteration_dir / "generated_code_checks.json").write_text(
+        json.dumps(checks, indent=2),
+        encoding="utf-8",
+    )
+    for warning in checks["warnings"]:
+        logger.warning("Code generation warning: %s", warning)
+    if checks["blockers"]:
+        for blocker in checks["blockers"]:
+            logger.warning("Code generation blocker: %s", blocker)
+        logger.warning("Falling back to safe template due to generated code blockers.")
+        code = _fallback_training_script()
     
     script_path = iteration_dir / "train.py"
     script_path.write_text(header + "\n" + code, encoding="utf-8")
@@ -729,8 +791,11 @@ def run_agent(
 
         # --- Step 6: Analyse ---
         if llm.is_available():
-            analysis = analyse_results(llm, results, task_context, iteration_dir)
-            logger.info("Analysis snippet: %s", analysis[:400])
+            try:
+                analysis = analyse_results(llm, results, task_context, iteration_dir)
+                logger.info("Analysis snippet: %s", analysis[:400])
+            except Exception as exc:
+                logger.warning("LLM analysis failed for this iteration: %s", exc)
         else:
             logger.warning("LLM unavailable for analysis step.")
 
