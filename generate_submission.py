@@ -1,5 +1,5 @@
 """
-Kaggle Submission Notebook Generator for BirdCLEF+ 2026 (Track B).
+Kaggle Submission Notebook Generator for BirdCLEF+ 2026.
 
 Generates a Jupyter notebook that:
   - Loads and preprocesses audio clips using librosa (CPU-only)

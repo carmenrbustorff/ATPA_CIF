@@ -34,7 +34,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -59,24 +59,192 @@ EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 NUM_SPECIES = 234
 MAX_EXEC_TIMEOUT = 600   # seconds – 10 minutes max per generated script
 
+
 TASK_CONTEXT_TEMPLATE = """\
 Task: BirdCLEF+ 2026 – Track B (audio classification)
 Goal: Multi-label classification of {num_species} bird species from mel-spectrograms.
-Constraints:
-  - Use TensorFlow/Keras or PyTorch
-  - Prioritise small-scale, fast iterations (short clips, low-res spectrograms)
-  - Final Kaggle submission must run on CPU in ≤ 90 minutes
-  - Audio → mel-spectrogram preprocessing is in preprocessing.py
-  - Model scaffolds are in models.py
+
+Current iteration: {iteration_num}
+
+CRITICAL RULES - READ CAREFULLY:
+0. IMPORTS (MANDATORY): Your code MUST start with these exact imports. Do not skip any:
+   import os
+   import torch
+   import torch.nn as nn
+   import torch.nn.functional as F
+   import torch.optim as optim
+   from dataset import get_dataloader
+   import json
+   from tqdm import tqdm
+   
+1. STRICTLY PYTORCH: You are absolutely forbidden from using TensorFlow, Keras, or `model.fit()`. 
+2. DATA INGESTION: You must use our pre-built PyTorch DataLoader. Do not write your own data loaders.
+    Use this code after imports:
+    
+    DATA_DIR = "/mnt/disks/data/birdclef"
+    METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+    train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
+    
+    IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
+    ❌ WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
+    ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
+    
+    For validation, use the same train_loader in eval mode (see section 8).
+
+    CRITICAL API CONSTRAINTS:
+    - Do NOT call train_loader.dataset.set_mode(...): this method does not exist.
+    - Do NOT unpack get_dataloader into train/val loaders.
+    - Do NOT use limit_samples(); limit work with a batch counter in the loop.
+    
+    IMPORTANT: Dataset has NO limit_samples() method!
+    ❌ WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
+    ✅ RIGHT: Use batch_count tracking to limit iterations:
+       batch_count = 0
+       for inputs, labels in train_loader:
+           if batch_count >= 10:  # Limit to N batches for fast feedback
+               break
+           # ... training code ...
+           batch_count += 1
+
+3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
+   - Channels: 1 (mono mel-spectrogram)
+   - Mel bins: 128
+   - Time frames: 216
+   When batched: (batch_size, 1, 128, 216)
+
+4. OUTPUT DIMENSIONS: Multi-label binary classification with {num_species} labels.
+   - Use sigmoid activation
+   - Use BCELoss for training
+   - Output shape: (batch_size, {num_species})
+
+5. ARCHITECTURE: Write a PyTorch CNN class that correctly flattens intermediate features.
+   Use AdaptiveAvgPool2d for robust dimension handling across training batches.
+   
+   CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
+   ⚠️ NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+   
+   Correct structure:
+   - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
+   - Conv2d(C1, C2) → BatchNorm2d(C2) → ReLU  (Note: C2 matches Conv output!)
+   - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, 234)
+   
+   ❌ WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
+   ✅ RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
+   
+   Example correct model:
+   ```python
+   self.conv_layers = nn.Sequential(
+       nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+       nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+   )
+   self.pool = nn.AdaptiveAvgPool2d((1, 1))
+   self.classifier = nn.Sequential(
+       nn.Linear(64, 128), nn.ReLU(),
+       nn.Linear(128, 234)  # NO BatchNorm1d!
+   )
+   def forward(self, x):
+       x = self.conv_layers(x)
+       x = self.pool(x).view(x.size(0), -1)
+       return torch.sigmoid(self.classifier(x))
+   ```
+
+6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
+    - Use 2 epochs maximum for quick iteration
+    - Use limited training samples: train on first ~5000 samples (~10 batches) for fast feedback
+    - Report loss per batch, not per epoch (shows progress)
+    - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
+    - Memory safety: If you get OOM, reduce batch_size and try again
+    - Do NOT train the full dataset (saves time and memory)
+   
+6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
+    Each iteration should try different hyperparameters to accelerate convergence.
+    Use this heuristic based on iteration number to vary systematically:
+    
+    BATCH SIZE OPTIONS (choose one):
+    - Iteration % 3 == 0: batch_size = 8  (small, memory-efficient)
+    - Iteration % 3 == 1: batch_size = 16 (medium, balanced)
+    - Iteration % 3 == 2: batch_size = 32 (large, GPU-friendly if possible)
+    
+    LEARNING RATE OPTIONS (choose one):
+    - Iteration % 3 == 0: lr = 0.001  (standard)
+    - Iteration % 3 == 1: lr = 0.0001 (reduced for fine-tuning)
+    - Iteration % 3 == 2: lr = 0.00001 (very conservative)
+    
+    ARCHITECTURE DEPTH (choose one):
+    - Iteration % 3 == 0: Use 2 Conv layers (shallow, fast)
+    - Iteration % 3 == 1: Use 3 Conv layers (standard depth)
+    - Iteration % 3 == 2: Use 4 Conv layers (deep, more capacity)
+    
+    REGULARIZATION OPTIONS:
+    - Vary dropout: 0.0 → 0.2 → 0.5
+    - Vary BatchNorm: include after conv → include everywhere → sparse placement
+    - Vary L2 regularization: 0 → 0.0001 → 0.001
+    
+    CONSTRAINTS:
+    - ALWAYS use AdaptiveAvgPool2d(1,1) for robust flattening
+    - ALWAYS use BCELoss + Sigmoid activation (multi-label)
+    - ALWAYS use Adam optimizer
+    - ALWAYS limit to 2 epochs for speed (full training later)
+    
+    Example iteration sequence:
+    - Iter 1 (1%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.2
+    - Iter 2 (2%3=2): batch=32, lr=0.00001, 4 conv, dropout=0.5
+    - Iter 3 (3%3=0): batch=8, lr=0.001, 2 conv, dropout=0.0
+    - Iter 4 (4%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.3  (vary)
+    
+    This systematic variation helps find good hyperparameters faster.
+
+7. TRAINING LOOP & LOSS FUNCTION:
+   - Write a standard PyTorch training loop
+   - Move model and data to CUDA with .to('cuda')
+   - Use subset of data for speed (can do full training later)
+   - Report training loss per epoch
+   
+   CRITICAL: BCELoss requires outputs in [0, 1] range!
+   ❌ WRONG:
+       outputs = model(inputs)  # Raw logits from Linear layer
+       loss = criterion(outputs, labels)  # BCELoss fails: expects [0,1], gets unbounded
+   ✅ RIGHT:
+       outputs = model(inputs)  # Raw logits from Linear layer
+       outputs = torch.sigmoid(outputs)  # Convert to [0,1]
+       loss = criterion(outputs, labels)  # BCELoss works!
+   
+   Alternative: Add sigmoid to the model's forward() method so it returns [0,1] directly.
+
+8. METRICS CAPTURE & MODEL SAVING (CRITICAL - THREE REQUIREMENTS):
+
+   REQUIREMENT 1: Compute & Save Validation AUC
+   - CRITICAL: get_dataloader() returns ONE dataloader only. Use it in eval mode for validation.
+   - Do NOT try to unpack into train_loader, val_loader - that won't work!
+   - Validation = same train_loader but with model.eval() and torch.no_grad()
+   - Use roc_auc_score(all_labels, all_preds, average='weighted')
+   - final_auc MUST be a valid float (never nan, inf, or null)
+   
+   REQUIREMENT 2: Save Metrics to JSON
+   - Save metrics dict to 'metrics.json' in the script's working directory
+   - Required keys: final_train_loss, final_auc, num_params, epochs_trained, batch_size, training_samples, eval_samples
+   - Print: "METRICS: " + JSON string on stdout for log parsing
+   
+   REQUIREMENT 3: Save Model Checkpoint
+   - Save model weights: torch.save(model.state_dict(), 'model.pt')
+   - This enables model reuse, ensembling, and kaggle submission generation
+   
+   Example metrics.json:
+   {{
+     "final_train_loss": 0.45,
+     "final_auc": 0.82,
+     "num_params": 45000,
+     "epochs_trained": 2,
+     "batch_size": 8,
+     "training_samples": 320,
+     "eval_samples": 320
+   }}
 
 Dataset summary:
 {dataset_summary}
 
 Previous best result: {best_result}
-"""
-
-
-# ---------------------------------------------------------------------------
+"""# ---------------------------------------------------------------------------
 # Helper: extract Python code blocks from LLM output
 # ---------------------------------------------------------------------------
 
@@ -94,6 +262,44 @@ def extract_code_blocks(text: str) -> list[str]:
     return [stripped] if stripped else []
 
 
+def validate_generated_code(code: str) -> Dict[str, list[str]]:
+    """
+    Validate generated training code against known project API constraints.
+
+    Returns a dict with:
+      - blockers: patterns that should trigger fallback script usage
+      - warnings: non-fatal issues worth logging
+    """
+    blocked_patterns = [
+        (r"\bset_mode\s*\(", "Uses set_mode(), but BirdCLEFDataset has no set_mode() API."),
+        (
+            r"\b\w+\s*,\s*\w+\s*=\s*get_dataloader\s*\(",
+            "Unpacks get_dataloader() into multiple loaders, but it returns one loader.",
+        ),
+        (r"\blimit_samples\s*\(", "Uses limit_samples(), but dataset has no limit_samples() API."),
+        (r"\bmodel\.fit\s*\(", "Uses model.fit(), but only manual PyTorch loops are supported."),
+        (r"\bimport\s+tensorflow\b", "Imports TensorFlow, which is forbidden in this pipeline."),
+        (r"\bfrom\s+tensorflow\b", "Imports TensorFlow, which is forbidden in this pipeline."),
+        (r"\bimport\s+keras\b", "Imports Keras, which is forbidden in this pipeline."),
+        (r"\bfrom\s+keras\b", "Imports Keras, which is forbidden in this pipeline."),
+    ]
+    warnings = []
+    blockers = []
+
+    for pattern, message in blocked_patterns:
+        if re.search(pattern, code, re.IGNORECASE):
+            blockers.append(message)
+
+    if "metrics.json" not in code:
+        warnings.append("Generated code does not explicitly mention metrics.json writing.")
+    if "METRICS:" not in code:
+        warnings.append("Generated code does not explicitly print METRICS: line for log parsing.")
+    if "model.pt" not in code:
+        warnings.append("Generated code does not explicitly mention saving model.pt checkpoint.")
+
+    return {"blockers": blockers, "warnings": warnings}
+
+
 # ---------------------------------------------------------------------------
 # Step 1 – Data Exploration
 # ---------------------------------------------------------------------------
@@ -106,7 +312,7 @@ def explore_data(data_dir: Optional[Path]) -> Dict:
     """
     summary: Dict = {
         "data_dir": str(data_dir) if data_dir else "not provided",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "audio_files": 0,
         "unique_species": 0,
         "total_duration_estimate_s": 0,
@@ -163,9 +369,14 @@ def propose_and_generate_code(
     Path to the generated script.
     """
     logger.info("Step 2: Requesting architecture proposal from LLM (%s)…", llm.model)
-    response = llm.propose_architecture(task_context, previous_results)
+    response = ""
+    try:
+        response = llm.propose_architecture(task_context, previous_results)
+    except Exception as exc:
+        logger.warning("LLM proposal failed, using fallback script: %s", exc)
+        (iteration_dir / "llm_error.txt").write_text(str(exc), encoding="utf-8")
 
-    # Save the raw LLM response
+    # Save the raw LLM response (if any)
     (iteration_dir / "llm_proposal.txt").write_text(response, encoding="utf-8")
     logger.info("LLM proposal saved.")
 
@@ -181,75 +392,164 @@ def propose_and_generate_code(
         code = "\n\n".join(code_blocks)
 
     # Prepend a safety header
+    # Calculate the project root relative to the experiments directory
+    project_root = EXPERIMENTS_DIR.parent.resolve()
     header = (
         "# AUTO-GENERATED by the Autonomous Research Agent\n"
         f"# Iteration: {iteration_dir.name}\n"
-        f"# Generated: {datetime.utcnow().isoformat()}\n\n"
-        "import sys, os\n"
-        "# Ensure project root is on sys.path\n"
-        "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\n"
+        f"# Generated: {datetime.now(timezone.utc).isoformat()}\n\n"
+        "import sys\n"
+        f"# Ensure project root is on sys.path before importing any project modules\n"
+        f"sys.path.insert(0, r'{project_root}')\n\n"
+        "# Essential imports (guaranteed to be available)\n"
+        "import os\n"
+        "import torch\n"
+        "import torch.nn as nn\n"
+        "import torch.nn.functional as F\n"
+        "import torch.optim as optim\n"
+        "from dataset import get_dataloader\n"
+        "import json\n"
+        "from tqdm import tqdm\n"
+        "import numpy as np\n"
+        "from sklearn.metrics import roc_auc_score\n"
     )
+    
+    # Remove duplicate imports from LLM code to avoid "import redefinition" issues
+    lines = code.split('\n')
+    filtered_lines = []
+    skip_imports = {'import os', 'import torch', 'import json', 'from tqdm import tqdm', 
+                    'import numpy as np', 'from sklearn.metrics import roc_auc_score',
+                    'import torch.nn as nn', 'import torch.nn.functional as F', 
+                    'import torch.optim as optim', 'from dataset import get_dataloader'}
+    for line in lines:
+        stripped = line.strip()
+        if any(stripped.startswith(skip) for skip in skip_imports):
+            continue
+        filtered_lines.append(line)
+    code = '\n'.join(filtered_lines)
+
+    # Validate generated code and fallback early on known API-incompatible patterns.
+    checks = validate_generated_code(code)
+    (iteration_dir / "generated_code_checks.json").write_text(
+        json.dumps(checks, indent=2),
+        encoding="utf-8",
+    )
+    for warning in checks["warnings"]:
+        logger.warning("Code generation warning: %s", warning)
+    if checks["blockers"]:
+        for blocker in checks["blockers"]:
+            logger.warning("Code generation blocker: %s", blocker)
+        logger.warning("Falling back to safe template due to generated code blockers.")
+        code = _fallback_training_script()
+    
     script_path = iteration_dir / "train.py"
-    script_path.write_text(header + code, encoding="utf-8")
+    script_path.write_text(header + "\n" + code, encoding="utf-8")
     logger.info("Generated training script: %s", script_path)
     return script_path
 
 
 def _fallback_training_script() -> str:
     """
-    Return a minimal baseline training script for when the LLM produces no code.
-    Uses the project's own model and preprocessing modules.
+    Return a minimal PyTorch training script for when LLM produces incomplete code.
+    Guarantees: metrics capture, validation AUC, and model checkpoint.
     """
     return '''\
-import json, time, pathlib, numpy as np
+import json
+import torch
+import torch.nn as nn
+import pathlib
 
-# Small-scale baseline using project scaffolds
-from models import build_simple_cnn_tf, compile_tf_model
-from preprocessing import spec_to_cnn_input
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = DATA_DIR + "/train.csv"
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
 
-import tensorflow as tf
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-NUM_SPECIES = 234
-N_MELS = 64
-TIME_FRAMES = 216
-BATCH_SIZE = 16
-EPOCHS = 3
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64, 234)
+    def forward(self, x):
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        return torch.sigmoid(self.fc(x))
 
-# --- Synthetic data (replace with real dataset loader) ---
-np.random.seed(42)
-n_train, n_val = 200, 40
-X_train = np.random.rand(n_train, N_MELS, TIME_FRAMES, 1).astype("float32")
-y_train = (np.random.rand(n_train, NUM_SPECIES) > 0.95).astype("float32")
-X_val   = np.random.rand(n_val, N_MELS, TIME_FRAMES, 1).astype("float32")
-y_val   = (np.random.rand(n_val, NUM_SPECIES) > 0.95).astype("float32")
+model = SimpleModel().to(device)
+criterion = nn.BCELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-model = compile_tf_model(
-    build_simple_cnn_tf(input_shape=(N_MELS, TIME_FRAMES, 1))
-)
-model.summary()
+# Training loop
+loss_sum = 0.0
+batch_count = 0
+for epoch in range(2):
+    model.train()
+    for inputs, labels in train_loader:
+        if batch_count >= 10:
+            break
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        loss_sum += loss.item()
+        batch_count += 1
+        torch.cuda.empty_cache()
+    print(f"Epoch {epoch+1}, Loss: {loss_sum/max(1, batch_count):.4f}")
+    if batch_count >= 10:
+        break
 
-t0 = time.time()
-history = model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=EPOCHS,
-    batch_size=BATCH_SIZE,
-    verbose=2,
-)
-elapsed = time.time() - t0
+# Evaluation loop: compute validation AUC
+model.eval()
+all_preds, all_labels = [], []
+eval_batch_count = 0
+with torch.no_grad():
+    for inputs, labels in train_loader:
+        if eval_batch_count >= 10:
+            break
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        all_preds.append(outputs.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
+        eval_batch_count += 1
+        torch.cuda.empty_cache()
 
+if all_preds:
+    all_preds = np.concatenate(all_preds)
+    all_labels = np.concatenate(all_labels)
+    try:
+        final_auc = float(roc_auc_score(all_labels, all_preds, average="weighted"))
+    except Exception:
+        final_auc = 0.5
+else:
+    final_auc = 0.5
+
+# Build metrics dict with all required fields
 metrics = {
-    "model": "SimpleCNN_baseline",
-    "epochs": EPOCHS,
-    "final_val_loss": float(history.history["val_loss"][-1]),
-    "final_val_auc": float(history.history.get("val_auc", [0])[-1]),
-    "training_time_s": round(elapsed, 2),
+    "final_train_loss": float(loss_sum / max(1, batch_count)) if batch_count > 0 else 0.0,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": 2,
+    "batch_size": 8,
+    "training_samples": batch_count * 8,
+    "eval_samples": eval_batch_count * 8,
 }
-out_path = pathlib.Path(__file__).parent / "metrics.json"
-out_path.write_text(json.dumps(metrics, indent=2))
-print("METRICS:", json.dumps(metrics))
-'''
 
+# Save metrics.json (Priority 1: CAPTURE METRICS)
+metrics_path = pathlib.Path(__file__).parent / "metrics.json"
+metrics_path.write_text(json.dumps(metrics, indent=2))
+print("METRICS:", json.dumps(metrics))
+
+# Save model checkpoint (Priority 3: MODEL CHECKPOINT)
+model_path = pathlib.Path(__file__).parent / "model.pt"
+torch.save(model.state_dict(), model_path)
+print(f"Model saved to {model_path}")
+'''
 
 # ---------------------------------------------------------------------------
 # Step 4 – Sandboxed Execution
@@ -265,8 +565,10 @@ def execute_script(script_path: Path, timeout: int = MAX_EXEC_TIMEOUT) -> Dict:
     logger.info("Step 4: Executing generated script (timeout=%ds)…", timeout)
     t0 = time.time()
     try:
+        # Use .venv Python to ensure PyTorch and dependencies are available
+        venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
         proc = subprocess.run(
-            [sys.executable, str(script_path)],
+            [str(venv_python), str(script_path)],
             cwd=str(script_path.parent),
             capture_output=True,
             text=True,
@@ -386,7 +688,7 @@ def save_state(experiments_dir: Path, state: Dict) -> None:
 def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
     """Update state with the latest iteration results."""
     metrics = results.get("metrics", {})
-    auc = metrics.get("final_val_auc", 0.0)
+    auc = metrics.get("final_auc", 0.0)  # Changed from final_val_auc to final_auc
     if auc > state["best_auc"]:
         state["best_auc"] = auc
         state["best_iteration"] = iteration_id
@@ -445,7 +747,7 @@ def run_agent(
 
     for i in range(num_iterations):
         global_iter = state["iteration"]
-        iteration_id = datetime.utcnow().strftime(f"iter_{global_iter:04d}_%Y%m%d_%H%M%S")
+        iteration_id = datetime.now(timezone.utc).strftime(f"iter_{global_iter:04d}_%Y%m%d_%H%M%S")
         iteration_dir = EXPERIMENTS_DIR / iteration_id
         iteration_dir.mkdir(parents=True, exist_ok=True)
 
@@ -470,6 +772,7 @@ def run_agent(
             previous_results_text = json.dumps(state["history"][-1], indent=2)
 
         task_context = TASK_CONTEXT_TEMPLATE.format(
+            iteration_num=i + 1,
             num_species=NUM_SPECIES,
             dataset_summary=json.dumps(dataset_summary, indent=2),
             best_result=best_result_str,
@@ -488,8 +791,11 @@ def run_agent(
 
         # --- Step 6: Analyse ---
         if llm.is_available():
-            analysis = analyse_results(llm, results, task_context, iteration_dir)
-            logger.info("Analysis snippet: %s", analysis[:400])
+            try:
+                analysis = analyse_results(llm, results, task_context, iteration_dir)
+                logger.info("Analysis snippet: %s", analysis[:400])
+            except Exception as exc:
+                logger.warning("LLM analysis failed for this iteration: %s", exc)
         else:
             logger.warning("LLM unavailable for analysis step.")
 
