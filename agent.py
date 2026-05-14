@@ -86,8 +86,8 @@ CRITICAL RULES - READ CAREFULLY:
     train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
     
     IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
-    ❌ WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
-    ✅ RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
+    WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
+    RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
     
     For validation, use the same train_loader in eval mode (see section 8).
 
@@ -97,8 +97,8 @@ CRITICAL RULES - READ CAREFULLY:
     - Do NOT use limit_samples(); limit work with a batch counter in the loop.
     
     IMPORTANT: Dataset has NO limit_samples() method!
-    ❌ WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
-    ✅ RIGHT: Use batch_count tracking to limit iterations:
+    WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
+    RIGHT: Use batch_count tracking to limit iterations:
        batch_count = 0
        for inputs, labels in train_loader:
            if batch_count >= 10:  # Limit to N batches for fast feedback
@@ -121,15 +121,15 @@ CRITICAL RULES - READ CAREFULLY:
    Use AdaptiveAvgPool2d for robust dimension handling across training batches.
    
    CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
-   ⚠️ NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+   NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
    
    Correct structure:
    - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
    - Conv2d(C1, C2) → BatchNorm2d(C2) → ReLU  (Note: C2 matches Conv output!)
    - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, 234)
    
-   ❌ WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
-   ✅ RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
+   WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
+   RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
    
    Example correct model:
    ```python
@@ -201,10 +201,10 @@ CRITICAL RULES - READ CAREFULLY:
    - Report training loss per epoch
    
    CRITICAL: BCELoss requires outputs in [0, 1] range!
-   ❌ WRONG:
+   WRONG:
        outputs = model(inputs)  # Raw logits from Linear layer
        loss = criterion(outputs, labels)  # BCELoss fails: expects [0,1], gets unbounded
-   ✅ RIGHT:
+   RIGHT:
        outputs = model(inputs)  # Raw logits from Linear layer
        outputs = torch.sigmoid(outputs)  # Convert to [0,1]
        loss = criterion(outputs, labels)  # BCELoss works!
