@@ -20,6 +20,8 @@ Implements the 7-step iterative cycle:
 Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
+like:
+   python3 agent.py --iterations 1 --model qwen2.5-coder:32b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -39,6 +41,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from llm_client import LLMClient
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -149,13 +154,16 @@ CRITICAL RULES - READ CAREFULLY:
    ```
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
-    - Use 2 epochs maximum for quick iteration
+    - Use 6 epochs maximum for quick iteration
     - Use limited training samples: train on first ~5000 samples (~10 batches) for fast feedback
     - Report loss per batch, not per epoch (shows progress)
     - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
     - Memory safety: If you get OOM, reduce batch_size and try again
     - Do NOT train the full dataset (saves time and memory)
-   
+    - Explicitly limit the dataset size BEFORE creating the PyTorch DataLoader (e.g., train_df = train_df.head(5000)). Do NOT use break statements inside the training epoch loop to limit batches.
+    - CRITICAL: Do NOT use break statements inside the training epoch loop to limit batches. The loop must be allowed to complete naturally.
+    -- CRITICAL: Use aggressive Dropout (e.g., 0.5) in the fully connected layers to prevent overfitting.
+
 6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
     Each iteration should try different hyperparameters to accelerate convergence.
     Use this heuristic based on iteration number to vary systematically:
@@ -184,7 +192,7 @@ CRITICAL RULES - READ CAREFULLY:
     - ALWAYS use AdaptiveAvgPool2d(1,1) for robust flattening
     - ALWAYS use BCELoss + Sigmoid activation (multi-label)
     - ALWAYS use Adam optimizer
-    - ALWAYS limit to 2 epochs for speed (full training later)
+    - ALWAYS limit to 6 epochs for speed (full training later)
     
     Example iteration sequence:
     - Iter 1 (1%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.2
@@ -234,10 +242,10 @@ CRITICAL RULES - READ CAREFULLY:
      "final_train_loss": 0.45,
      "final_auc": 0.82,
      "num_params": 45000,
-     "epochs_trained": 2,
-     "batch_size": 8,
-     "training_samples": 320,
-     "eval_samples": 320
+     "epochs_trained": 6,
+     "batch_size": 16,
+     "training_samples": 5000,
+     "eval_samples": 1000
    }}
 
 Dataset summary:
@@ -484,13 +492,16 @@ criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-loss_sum = 0.0
-batch_count = 0
-for epoch in range(2):
+
+for epoch in range(epochs):
+    loss_sum = 0.0
+    batch_count = 0
     model.train()
+    
     for inputs, labels in train_loader:
         if batch_count >= 10:
-            break
+            break  # This safely breaks the BATCH loop, but keeps the EPOCH loop alive
+            
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -500,10 +511,10 @@ for epoch in range(2):
         loss_sum += loss.item()
         batch_count += 1
         torch.cuda.empty_cache()
+        
     print(f"Epoch {epoch+1}, Loss: {loss_sum/max(1, batch_count):.4f}")
-    if batch_count >= 10:
-        break
-
+    # DO NOT put a break statement here!
+    
 # Evaluation loop: compute validation AUC
 model.eval()
 all_preds, all_labels = [], []
@@ -534,10 +545,10 @@ metrics = {
     "final_train_loss": float(loss_sum / max(1, batch_count)) if batch_count > 0 else 0.0,
     "final_auc": final_auc,
     "num_params": sum(p.numel() for p in model.parameters()),
-    "epochs_trained": 2,
-    "batch_size": 8,
-    "training_samples": batch_count * 8,
-    "eval_samples": eval_batch_count * 8,
+    "epochs_trained": 6,
+    "batch_size": batch_size,
+    "training_samples": batch_count * batch_size,
+    "eval_samples": eval_batch_count * batch_size,
 }
 
 # Save metrics.json (Priority 1: CAPTURE METRICS)
