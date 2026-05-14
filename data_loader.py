@@ -1,7 +1,7 @@
 """
 Memory-efficient PyTorch Dataset and DataLoader for BirdCLEF 2026 (Phase 1).
 
-Reads train_metadata.csv, loads .ogg audio from the shared disk at
+Reads train.csv, loads .ogg audio from the shared disk at
 /mnt/disks/data/birdclef/train_audio/, and extracts random 5-second
 mel-spectrogram windows on the fly during training.
 
@@ -26,6 +26,7 @@ import logging
 import os
 import random
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -34,9 +35,10 @@ import pandas as pd
 import torch
 import torchaudio
 import torchaudio.transforms as T
-from torch.utils.data import DataLoader, Dataset
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Dataset, Subset
 
-from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
+from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +58,8 @@ DATA_ROOT = Path("/mnt/disks/data/birdclef")
 METADATA_CSV = DATA_ROOT / "train.csv"
 AUDIO_DIR = DATA_ROOT / "train_audio"
 
-SAMPLE_RATE = SR          # native rate of BirdCLEF OGG files
-CLIP_DURATION = CLIP_DURATION           # seconds
+SAMPLE_RATE = SR
+CLIP_DURATION = CLIP_DURATION
 CLIP_SAMPLES = int(SAMPLE_RATE * CLIP_DURATION)  # 160,000
 
 N_MELS = N_MELS
@@ -91,13 +93,13 @@ class BirdCLEFDataset(Dataset):
     Parameters
     ----------
     metadata_csv:
-        Path to ``train_metadata.csv``.
+        Path to ``train.csv``.
     audio_dir:
         Root directory that contains per-species sub-directories of OGG files.
     sample_rate:
         Target sample rate in Hz (default 32 000).
     clip_samples:
-        Number of waveform samples per clip (default 160 000 = 5 s × 32 kHz).
+        Number of waveform samples per clip (default 160 000 = 5 s x 32 kHz).
     n_mels:
         Number of mel filter-bank bins.
     n_fft:
@@ -109,7 +111,7 @@ class BirdCLEFDataset(Dataset):
     top_db:
         Dynamic range for AmplitudeToDB.
     augment:
-        If True, apply basic time-shift augmentation (reserved for training).
+          If True, apply random time-shift augmentation (training only).
     """
 
     def __init__(
@@ -144,12 +146,9 @@ class BirdCLEFDataset(Dataset):
         self.idx_to_label: list[str] = species
         self.num_classes: int = len(species)
 
-        # Each row in the CSV has a "filename" column with a relative path
-        # like "XC12345/XC12345.ogg" (relative to train_audio/).
         self._samples: list[Tuple[Path, int]] = []
         for _, row in df.iterrows():
-            rel_path = row["filename"]
-            full_path = self.audio_dir / rel_path
+            full_path = self.audio_dir / row["filename"]
             label_idx = self.label_to_idx[row["primary_label"]]
             self._samples.append((full_path, label_idx))
 
@@ -182,7 +181,7 @@ class BirdCLEFDataset(Dataset):
         Load an OGG file and return a mono waveform of exactly
         ``self.clip_samples`` frames.
 
-        A random ``clip_samples``-length window is extracted when the file
+        A random ``self.clip_samples``-length window is extracted when the file
         is longer; the waveform is zero-padded when it is shorter.
         """
         try:
@@ -202,7 +201,6 @@ class BirdCLEFDataset(Dataset):
         total_samples = waveform.shape[-1]
 
         if total_samples >= self.clip_samples:
-            # Random window extraction
             if self.augment:
                 max_start = total_samples - self.clip_samples
                 start = random.randint(0, max_start)
@@ -263,7 +261,7 @@ def build_dataloader(
     Parameters
     ----------
     metadata_csv:
-        Path to ``train_metadata.csv``.
+        Path to ``train.csv``.
     audio_dir:
         Root directory of the OGG training audio files.
     batch_size:
@@ -273,7 +271,7 @@ def build_dataloader(
     num_workers:
         Sub-processes for data loading. Defaults to ``min(3, cpu_count-1)``.
     pin_memory:
-        Enables faster CPU→GPU transfers via pinned memory. Set True when
+        Enables faster CPU->GPU transfers via pinned memory. Set True when
         running on a CUDA-capable host.
     augment:
         Pass True during training to enable random window extraction.
@@ -311,11 +309,103 @@ def build_dataloader(
 
 
 # ---------------------------------------------------------------------------
+# Stratified train / val split factory
+# ---------------------------------------------------------------------------
+
+def build_train_val_dataloaders(
+    metadata_csv: Path = METADATA_CSV,
+    audio_dir: Path = AUDIO_DIR,
+    val_split: float = 0.2,
+    batch_size: int = 32,
+    num_workers: int = NUM_WORKERS,
+    pin_memory: bool = True,
+    augment: bool = False,
+    prefetch_factor: Optional[int] = 2,
+    random_state: int = 42,
+) -> Tuple[DataLoader, DataLoader]:
+    """
+    Build stratified 80/20 train and validation DataLoaders.
+
+    Stratification is on primary_label. Species with fewer than 2 samples
+    are dropped with a warning. The train loader uses random-crop augmentation
+    if augment=True; the val loader always uses a deterministic centre crop.
+
+    Parameters
+    ----------
+    metadata_csv:
+        Path to train.csv.
+    audio_dir:
+        Root directory of the OGG training audio files.
+    val_split:
+        Fraction of the dataset reserved for validation (default 0.20).
+    batch_size:
+        Samples per batch for both loaders.
+    num_workers:
+        Sub-processes for data loading.
+    pin_memory:
+        Enables faster CPU->GPU transfers via pinned memory.
+    augment:
+        If True, the train loader uses random window extraction;
+        the val loader always uses a deterministic centre crop.
+    prefetch_factor:
+        Batches to pre-load per worker. None disables prefetching.
+    random_state:
+        Seed passed to train_test_split for reproducibility.
+
+    Returns
+    -------
+    (train_loader, val_loader) : Tuple[DataLoader, DataLoader]
+    """
+    if not 0.0 < val_split < 1.0:
+        raise ValueError(f"val_split must be in (0, 1), got {val_split}")
+
+    # Two separate dataset objects so augment never leaks into val
+    train_dataset = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=augment)
+    val_dataset   = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=False)
+
+    all_labels   = [lbl for _, lbl in train_dataset._samples]
+    label_counts = Counter(all_labels)
+    eligible_idx = [i for i, (_, lbl) in enumerate(train_dataset._samples)
+                    if label_counts[lbl] >= 2]
+    eligible_labels = [all_labels[i] for i in eligible_idx]
+
+    dropped = len(train_dataset) - len(eligible_idx)
+    if dropped:
+        logger.warning("Dropped %d samples from singleton classes.", dropped)
+
+    train_local, val_local = train_test_split(
+        range(len(eligible_idx)),
+        test_size=val_split,
+        stratify=eligible_labels,
+        random_state=random_state,
+    )
+    train_idx = [eligible_idx[i] for i in train_local]
+    val_idx   = [eligible_idx[i] for i in val_local]
+
+    logger.info("Stratified split — train: %d  val: %d  dropped: %d",
+                len(train_idx), len(val_idx), dropped)
+
+    loader_kwargs = dict(
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        drop_last=False,
+    )
+    train_loader = DataLoader(Subset(train_dataset, train_idx), shuffle=True,  **loader_kwargs)
+    val_loader   = DataLoader(Subset(val_dataset,   val_idx),   shuffle=False, **loader_kwargs)
+
+    logger.info("Train: %d batches  |  Val: %d batches  (batch_size=%d)",
+                len(train_loader), len(val_loader), batch_size)
+    return train_loader, val_loader
+
+
+# ---------------------------------------------------------------------------
 # Validation entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Allow overriding paths via env vars for testing in alternate environments
     metadata_csv = Path(os.environ.get("BIRDCLEF_METADATA", str(METADATA_CSV)))
     audio_dir = Path(os.environ.get("BIRDCLEF_AUDIO_DIR", str(AUDIO_DIR)))
 
@@ -325,6 +415,7 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 16
 
+    # Smoke-test build_dataloader
     logger.info("Initialising DataLoader (batch_size=%d)...", BATCH_SIZE)
     loader = build_dataloader(
         metadata_csv=metadata_csv,
@@ -333,23 +424,15 @@ if __name__ == "__main__":
         shuffle=True,
         augment=True,
     )
-
-    logger.info("Fetching first batch...")
     spectrograms, labels = next(iter(loader))
-
-    # Report tensor shape
     print(f"\n{'='*60}")
     print(f"  Batch tensor shape : {tuple(spectrograms.shape)}")
     print(f"  Expected           : ({BATCH_SIZE}, 1, {N_MELS}, {TIME_FRAMES})")
     print(f"  dtype              : {spectrograms.dtype}")
     print(f"  Labels shape       : {tuple(labels.shape)}")
     print(f"  Label range        : [{labels.min().item()}, {labels.max().item()}]")
-
-    # Memory footprint
     bytes_per_batch = spectrograms.element_size() * spectrograms.nelement()
     print(f"  Batch memory (CPU) : {bytes_per_batch / 1024**2:.2f} MB")
-
-    # GPU readiness check
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"  Target device      : {device}")
     if device.type == "cuda":
@@ -360,5 +443,27 @@ if __name__ == "__main__":
         print(f"  GPU VRAM allocated : {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
         torch.cuda.empty_cache()
     print(f"{'='*60}\n")
+    logger.info("DataLoader smoke-test passed.")
 
-    logger.info("Validation complete — DataLoader is working correctly.")
+    # Smoke-test build_train_val_dataloaders
+    logger.info("Testing build_train_val_dataloaders ...")
+    train_loader, val_loader = build_train_val_dataloaders(
+        metadata_csv=metadata_csv,
+        audio_dir=audio_dir,
+        val_split=0.2,
+        batch_size=BATCH_SIZE,
+        augment=True,
+    )
+    print(f"\n{'='*60}")
+    print(f"  Stratified split smoke-test")
+    print(f"  Train batches : {len(train_loader)}")
+    print(f"  Val   batches : {len(val_loader)}")
+    tr_specs, tr_labels = next(iter(train_loader))
+    va_specs, va_labels = next(iter(val_loader))
+    print(f"  Train batch   : specs={tuple(tr_specs.shape)}  labels={tuple(tr_labels.shape)}")
+    print(f"  Val   batch   : specs={tuple(va_specs.shape)}  labels={tuple(va_labels.shape)}")
+    overlap = set(train_loader.dataset.indices) & set(val_loader.dataset.indices)
+    print(f"  Index overlap : {len(overlap)} (must be 0)")
+    assert len(overlap) == 0, "BUG: train/val index lists overlap!"
+    print(f"{'='*60}\n")
+    logger.info("Stratified split smoke-test passed.")
