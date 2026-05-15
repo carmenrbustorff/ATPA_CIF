@@ -21,7 +21,7 @@ Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
 like:
-   python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
+   python3 agent.py --iterations 5 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -99,7 +99,10 @@ CRITICAL RULES - READ CAREFULLY:
     - ALWAYS use augment=True for training, augment=False for validation (handled automatically by build_train_val_dataloaders).
     - If you use build_dataloader directly, set augment=True for training and augment=False for validation.
     - Do NOT use get_dataloader; use build_train_val_dataloaders for all new code.
+    - CRITICAL: The full dataset contains naturally corrupted .ogg files. You MUST wrap your audio loading function (e.g., torchaudio.load or librosa.load) inside a try/except block within the __getitem__ method of your Dataset class. If a file fails to load, catch the exception, print a small warning, and recursively load a random different index (e.g., return self.__getitem__(random.randint(0, len(self) - 1))). NEVER return None.
+    
 
+    
     For validation, always use the val_loader returned by build_train_val_dataloaders.
 
     CRITICAL API CONSTRAINTS:
@@ -178,6 +181,10 @@ CRITICAL RULES - READ CAREFULLY:
     - CRITICAL: Set max_epochs to 40. However, you MUST implement an Early Stopping callback. Monitor the validation AUC and stop training if it does not improve for 5 consecutive epochs to save GPU time.
     -You must implement Early Stopping: stop training if validation AUC does not improve for 5 consecutive epochs
     - You must split the dataset into train and validation sets before creating DataLoaders. Always evaluate AUC on the validation set, not the training set.
+    
+
+
+    - CRITICAL: Wrap the batch training step in a try/except RuntimeError block. If an 'out of memory' error is caught, immediately run torch.cuda.empty_cache(), reduce the current batch_size by half, and retry the batch. Do not allow OOM to crash the script.
     
 
     Each iteration should try different hyperparameters to accelerate convergence.

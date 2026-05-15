@@ -1,0 +1,169 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+
+# Hyperparameters
+iteration = 5  # Current iteration number
+NUM_SPECIES = 206  # Number of bird species to classify
+
+# Batch size selection based on iteration number
+if iteration % 3 == 0:
+    batch_size = 8
+elif iteration % 3 == 1:
+    batch_size = 16
+else:
+    batch_size = 32
+
+# Learning rate selection based on iteration number
+if iteration % 3 == 0:
+    lr = 0.001
+elif iteration % 3 == 1:
+    lr = 0.0001
+else:
+    lr = 0.00001
+
+# Architecture depth selection based on iteration number
+if iteration % 3 == 0:
+    num_conv_layers = 2
+elif iteration % 3 == 1:
+    num_conv_layers = 3
+else:
+    num_conv_layers = 4
+
+# Regularization options
+dropout_rate = 0.5  # Dropout rate
+weight_decay = 0.001  # L2 regularization strength
+
+# Data paths
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Build data loaders
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=batch_size,
+    augment=True,      # Enable augmentation for training
+    val_split=0.2,     # 80/20 split
+)
+
+# Define the model
+class BirdClassifier(nn.Module):
+    def __init__(self, num_species):
+        super(BirdClassifier, self).__init__()
+        conv_layers = []
+        in_channels = 1
+        for i in range(num_conv_layers):
+            out_channels = 32 * (i + 1)
+            conv_layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            conv_layers.append(nn.BatchNorm2d(out_channels))
+            conv_layers.append(nn.ReLU())
+            in_channels = out_channels
+        self.conv_layers = nn.Sequential(*conv_layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.Linear(in_channels, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model, optimizer, and loss function
+model = BirdClassifier(NUM_SPECIES).to('cuda')
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+criterion = nn.BCELoss()
+
+# Training loop
+max_epochs = 20
+early_stopping_patience = 5
+best_auc = 0.0
+stop_training = False
+train_losses = []
+
+for epoch in range(max_epochs):
+    if stop_training:
+        break
+    
+    model.train()
+    running_loss = 0.0
+    for batch_idx, (inputs, labels) in enumerate(train_loader):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item()
+        if batch_idx % 10 == 9:  # Print every 10 batches
+            print(f'Epoch [{epoch+1}/{max_epochs}], Batch [{batch_idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}')
+        
+        torch.cuda.empty_cache()  # Clear cache to prevent GPU fragmentation
+
+    train_loss = running_loss / len(train_loader)
+    train_losses.append(train_loss)
+
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            preds = (outputs > 0.5).float().cpu().numpy()
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+
+    # Compute AUC
+    from sklearn.metrics import roc_auc_score
+    auc = roc_auc_score(all_labels, all_preds, average='weighted')
+    print(f'Epoch [{epoch+1}/{max_epochs}], Validation AUC: {auc:.4f}')
+
+    # Early stopping
+    if auc > best_auc:
+        best_auc = auc
+        early_stopping_counter = 0
+        torch.save(model.state_dict(), 'model.pt')  # Save the model
+    else:
+        early_stopping_counter += 1
+        if early_stopping_counter >= early_stopping_patience:
+            stop_training = True
+
+# Final metrics
+final_train_loss = train_losses[-1]
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+training_samples = len(train_loader.dataset)
+eval_samples = len(val_loader.dataset)
+
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": best_auc,
+    "num_params": num_params,
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size,
+    "training_samples": training_samples,
+    "eval_samples": eval_samples
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+This code defines a new model architecture with varying hyperparameters based on the iteration number. It includes a training loop that moves data to CUDA, computes and prints loss per batch, and saves the best model based on validation AUC. The final metrics are saved to `metrics.json` and printed for logging purposes.

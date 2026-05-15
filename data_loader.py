@@ -250,11 +250,21 @@ class BirdCLEFDataset(Dataset):
         return len(self._samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        path, label = self._samples[idx]
-        waveform = self._load_waveform(path)
-        spectrogram = self._waveform_to_melspec(waveform)
-        return spectrogram, label
+        try:
+            # Your existing logic
+            path, label = self._samples[idx]
+            waveform = self._load_waveform(path)
+            spectrogram = self._waveform_to_melspec(waveform)
+            
+            return spectrogram, label
+            
+        except Exception as e:
+            # Catch the corrupted file error
+            logger.warning("Skipping corrupted file at index %d: %s", idx, e)
 
+            # Pick a random new index and recursively try again
+            new_idx = random.randint(0, len(self._samples) - 1)
+            return self.__getitem__(new_idx)
 
 # ---------------------------------------------------------------------------
 # DataLoader factory

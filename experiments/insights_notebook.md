@@ -28,4 +28,4 @@ Iteration 95: new max AUC: 0.76!  Script completed in 469.9 s., took 10 minutes 
 
 Added data augmentation to data loader and to agent task so it is able to perform it
 Model is severly overfitting, increase sample size to 35,000 for training and 15,000 for evaluation, epochs to 20
-
+After including data augmentation to the pipeline the model repeatedly hit issues related to file corruption, unsupported formats, or missing files.
