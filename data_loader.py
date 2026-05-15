@@ -383,6 +383,8 @@ def build_train_val_dataloaders(
     augment: bool = False,
     prefetch_factor: Optional[int] = 2,
     random_state: int = 42,
+    use_cache: bool = False,
+    cache_dir: Path = Path("/tmp/birdclef-specs"),
 ) -> Tuple[DataLoader, DataLoader]:
     """
     Build stratified 80/20 train and validation DataLoaders.
@@ -406,12 +408,19 @@ def build_train_val_dataloaders(
     pin_memory:
         Enables faster CPU->GPU transfers via pinned memory.
     augment:
-        If True, the train loader uses random window extraction;
-        the val loader always uses a deterministic centre crop.
+        If True, the train loader uses random window extraction plus
+        SpecAugment and mixup. The val loader always uses a deterministic centre crop.
     prefetch_factor:
         Batches to pre-load per worker. None disables prefetching.
     random_state:
         Seed passed to train_test_split for reproducibility.
+    use_cache:
+        If True, load precomputed spectrograms from cache_dir instead of
+        processing OGG files on the fly. Requires cache_spectrograms.py
+        to have been run first. Note: augment and mixup are disabled when
+        using the cache since BirdCLEFCachedDataset does not support them.
+    cache_dir:
+        Directory containing cached .npz spectrogram files.
 
     Returns
     -------
@@ -420,11 +429,23 @@ def build_train_val_dataloaders(
     if not 0.0 < val_split < 1.0:
         raise ValueError(f"val_split must be in (0, 1), got {val_split}")
 
-    # Two separate dataset objects so augment never leaks into val
-    train_dataset = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=augment)
-    val_dataset   = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=False)
-
-    all_labels   = [lbl for _, lbl in train_dataset._samples]
+    if use_cache:
+        from data_loader_cached import BirdCLEFCachedDataset
+        logger.info("Using cached spectrograms from %s", cache_dir)
+        if augment:
+            logger.warning(
+                "augment=True is ignored when use_cache=True — "
+                "BirdCLEFCachedDataset does not support augmentation."
+            )
+        # Cached dataset: single object, no augment support
+        train_dataset = BirdCLEFCachedDataset(metadata_csv=metadata_csv, cache_dir=cache_dir)
+        val_dataset   = BirdCLEFCachedDataset(metadata_csv=metadata_csv, cache_dir=cache_dir)
+        all_labels    = [lbl for _, lbl in train_dataset._samples]
+    else:
+        # Two separate dataset objects so augment never leaks into val
+        train_dataset = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=augment)
+        val_dataset   = BirdCLEFDataset(metadata_csv=metadata_csv, audio_dir=audio_dir, augment=False)
+        all_labels    = [lbl for _, lbl in train_dataset._samples]
     label_counts = Counter(all_labels)
     eligible_idx = [i for i, (_, lbl) in enumerate(train_dataset._samples)
                     if label_counts[lbl] >= 2]
@@ -457,7 +478,7 @@ def build_train_val_dataloaders(
     train_loader = DataLoader(
         Subset(train_dataset, train_idx),
         shuffle=True,
-        collate_fn=partial(mixup_collate_fn, num_classes=train_dataset.num_classes) if augment else None,
+        collate_fn=partial(mixup_collate_fn, num_classes=train_dataset.num_classes) if (augment and not use_cache) else None,
         **loader_kwargs,
     )
     val_loader = DataLoader(Subset(val_dataset, val_idx), shuffle=False, **loader_kwargs)

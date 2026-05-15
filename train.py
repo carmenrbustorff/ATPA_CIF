@@ -5,7 +5,6 @@ Usage:
     python train.py --model efficientnet_torch --epochs 10 --batch-size 16 --lr 5e-4 --augment
 """
 import argparse, json, time, traceback
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -13,13 +12,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
-from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
 
-from data_loader import BirdCLEFDataset, METADATA_CSV, AUDIO_DIR, NUM_WORKERS
 from models import build_simple_cnn_torch, build_efficientnet_torch
 from config import NUM_SPECIES
+from data_loader import build_train_val_dataloaders
 
 
 def parse_args():
@@ -41,21 +38,6 @@ def parse_args():
     p.add_argument("--cache-dir", type=Path, default=Path("/tmp/birdclef-specs"),
                   help="Directory with cached spectrograms (if --use-cache is set)")
     return p.parse_args()
-
-
-def stratified_split(dataset, val_split, seed):
-    """Stratified split by primary label. Drops classes with <2 samples."""
-    labels = [s[1] for s in dataset._samples]
-    counts = Counter(labels)
-    valid_indices = [i for i, l in enumerate(labels) if counts[l] >= 2]
-    valid_labels = [labels[i] for i in valid_indices]
-    train_local, val_local = train_test_split(
-        list(range(len(valid_indices))), test_size=val_split,
-        stratify=valid_labels, random_state=seed,
-    )
-    train_idx = [valid_indices[i] for i in train_local]
-    val_idx = [valid_indices[i] for i in val_local]
-    return train_idx, val_idx, len(labels) - len(valid_indices)
 
 
 def to_multilabel(y, num_classes):
@@ -155,22 +137,15 @@ def main():
         print(f"Device: {device}")
 
         # Load dataset (cached or on-the-fly)
-        if args.use_cache:
-            print("Loading cached dataset...")
-            from data_loader_cached import BirdCLEFCachedDataset
-            full = BirdCLEFCachedDataset(metadata_csv=METADATA_CSV, cache_dir=args.cache_dir)
-        else:
-            full = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR, augment=args.augment)
-        
-        train_idx, val_idx, dropped = stratified_split(full, args.val_split, args.seed)
-        train_set = Subset(full, train_idx)
-        val_set = Subset(full, val_idx)
-        print(f"Train: {len(train_idx)}  Val: {len(val_idx)}  Dropped: {dropped}  Classes: {NUM_SPECIES}")
-
-        loader_kw = dict(num_workers=0, pin_memory=(device.type == "cuda"),
-                          persistent_workers=False)
-        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, **loader_kw)
-        val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, **loader_kw)
+        train_loader, val_loader = build_train_val_dataloaders(
+            val_split=args.val_split,
+            batch_size=args.batch_size,
+            augment=args.augment,
+            random_state=args.seed,
+            use_cache=args.use_cache,
+            cache_dir=args.cache_dir,
+        )
+        print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  Classes: {NUM_SPECIES}")
 
         model = build_model(args.model, NUM_SPECIES).to(device)
         expand_rgb = (args.model == "efficientnet_torch")
