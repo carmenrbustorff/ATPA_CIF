@@ -9,7 +9,7 @@ Generates a Jupyter notebook that:
   - Produces submission.csv in required Kaggle format
 
 Usage:
-    python generate_pytorch_submission.py [--model path/to/model.pt] [--output submission.ipynb]
+    python generate_pytorch_submission.py --model experiments/iter_0086_20260515_083151/model.pt --output submission.ipynb
 """
 
 from __future__ import annotations

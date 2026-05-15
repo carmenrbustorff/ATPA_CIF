@@ -9,4 +9,12 @@ The scale-up to 5,000 samples was successful. The system did not crash, the GPU 
         fixed batch size error - data was being exhausted in first batch
         The GPU memory didn't crash. The script correctly processed all 6 epochs.It completed everything in about 4 minutes.
         but the LLM was unavailable for anaylysis step still -> likely ollama sleeping time
-    
+    The Step 6 analysis actually ran. The 15-second pause and the 120-second timeout fixes worked perfectly. The agent successfully woke up, analyzed the crashed code, and saved its thoughts. The pipeline is fully whole.
+Iteration 85: The model achieved a final_train_loss of 0.02 but an AUC of 0.50. It completely memorized the 5,000 training samples (loss near zero) but failed to learn anything real, resulting in random guessing on the validation set.
+Iteration 86: The agent read the analysis, likely applied the dropout or augmentation constraints you added to the prompt, and tried again. This time, the training loss stopped at 0.3699 (meaning the model was forced to generalize instead of memorize), and the validation AUC jumped to a new best of 0.5629.
+
+Ready to increase sample size further, but will need to monitor GPU memory and training time closely. Next steps:
+    increase iterations per run
+    increase sample size further (e.g., 10,000 or 20,000) if GPU can handle it
+
+Iteration 87: Increased training samples to 15,000: took 6 minuntes to run each iteration with 6 epochs, batch size1 6. AUC= .501

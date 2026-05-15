@@ -21,7 +21,7 @@ Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
 like:
-   python3 agent.py --iterations 1 --model qwen2.5-coder:32b --data-dir /mnt/disks/data/birdclef
+   python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
-NUM_SPECIES = 234
+NUM_SPECIES = 206  # Update this if dataset changes
 MAX_EXEC_TIMEOUT = 600   # seconds – 10 minutes max per generated script
 
 
@@ -102,7 +102,7 @@ CRITICAL RULES - READ CAREFULLY:
     - Do NOT use limit_samples(); limit work with a batch counter in the loop.
     
     IMPORTANT: Dataset has NO limit_samples() method!
-    WRONG: train_loader.dataset.limit_samples(5000)  # Method does NOT exist!
+    WRONG: train_loader.dataset.limit_samples(15000)  # Method does NOT exist!
     RIGHT: Use batch_count tracking to limit iterations:
        batch_count = 0
        for inputs, labels in train_loader:
@@ -131,7 +131,7 @@ CRITICAL RULES - READ CAREFULLY:
    Correct structure:
    - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
    - Conv2d(C1, C2) → BatchNorm2d(C2) → ReLU  (Note: C2 matches Conv output!)
-   - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, 234)
+   - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, {num_species})
    
    WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
    RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
@@ -145,7 +145,7 @@ CRITICAL RULES - READ CAREFULLY:
    self.pool = nn.AdaptiveAvgPool2d((1, 1))
    self.classifier = nn.Sequential(
        nn.Linear(64, 128), nn.ReLU(),
-       nn.Linear(128, 234)  # NO BatchNorm1d!
+       nn.Linear(128, NUM_SPECIES)  # NO BatchNorm1d!
    )
    def forward(self, x):
        x = self.conv_layers(x)
@@ -154,15 +154,19 @@ CRITICAL RULES - READ CAREFULLY:
    ```
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
-    - Use 6 epochs maximum for quick iteration
-    - Use limited training samples: train on first ~5000 samples (~10 batches) for fast feedback
+    - Use 10 epochs maximum for quick iteration
     - Report loss per batch, not per epoch (shows progress)
     - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
     - Memory safety: If you get OOM, reduce batch_size and try again
     - Do NOT train the full dataset (saves time and memory)
-    - Explicitly limit the dataset size BEFORE creating the PyTorch DataLoader (e.g., train_df = train_df.head(5000)). Do NOT use break statements inside the training epoch loop to limit batches.
+    - CRITICAL: To limit the training dataset for faster iteration, you MUST use torch.utils.data.Subset with exactly 15000 samples. Example: subset = torch.utils.data.Subset(train_loader.dataset, range(min(15000, len(train_loader.dataset))));
     - CRITICAL: Do NOT use break statements inside the training epoch loop to limit batches. The loop must be allowed to complete naturally.
-    -- CRITICAL: Use aggressive Dropout (e.g., 0.5) in the fully connected layers to prevent overfitting.
+    - CRITICAL: Use aggressive Dropout (e.g., 0.5) in the fully connected layers to prevent overfitting.
+    - CRITICAL: You must explicitly define all hyperparameter variables (e.g., epochs = 6, batch_size = 16) at the top of your training script before using them in any loops.
+    - CRITICAL: Do NOT hardcode the number of output classes in the final Linear layer. You must use the provided num_species variable (which is currently 206) to define the final out_features of the model.
+    - CRITICAL: Limit the validation dataset to a maximum of 5000 samples to keep evaluation times fast. Example: val_subset = torch.utils.data.Subset(val_loader.dataset, range(min(5000, len(val_loader.dataset)))); val_loader = torch.utils.data.DataLoader(val_subset, batch_size=32, shuffle=False)
+    - CRITICAL: You must evaluate the final AUC on a separate validation set (e.g., using val_loader), NEVER the train_loader. You must split the dataset into train and validation sets before creating the DataLoaders.
+ 
 
 6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
     Each iteration should try different hyperparameters to accelerate convergence.
@@ -244,8 +248,8 @@ CRITICAL RULES - READ CAREFULLY:
      "num_params": 45000,
      "epochs_trained": 6,
      "batch_size": 16,
-     "training_samples": 5000,
-     "eval_samples": 1000
+     "training_samples": 15000,
+     "eval_samples": 5000
    }}
 
 Dataset summary:
@@ -474,12 +478,12 @@ train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class SimpleModel(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(64, 234)
+        self.fc = nn.Linear(64, num_classes)  # Use num_classes parameter for output dimension
     def forward(self, x):
         x = torch.relu(self.conv1(x))
         x = torch.relu(self.conv2(x))
@@ -487,12 +491,12 @@ class SimpleModel(nn.Module):
         x = x.view(x.size(0), -1)
         return torch.sigmoid(self.fc(x))
 
-model = SimpleModel().to(device)
+model = SimpleModel(num_classes=NUM_SPECIES).to(device)
 criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-
+epochs = 6
 for epoch in range(epochs):
     loss_sum = 0.0
     batch_count = 0
@@ -800,16 +804,16 @@ def run_agent(
         # --- Step 5: Capture Results ---
         results = capture_results(exec_result, iteration_dir)
 
+      
         # --- Step 6: Analyse ---
-        if llm.is_available():
-            try:
-                analysis = analyse_results(llm, results, task_context, iteration_dir)
-                logger.info("Analysis snippet: %s", analysis[:400])
-            except Exception as exc:
-                logger.warning("LLM analysis failed for this iteration: %s", exc)
-        else:
-            logger.warning("LLM unavailable for analysis step.")
-
+        import time
+        logger.info("Giving Ollama 15 seconds to load the model back into VRAM...")
+        time.sleep(15)
+        try:
+            analysis = analyse_results(llm, results, task_context, iteration_dir)
+            logger.info("Analysis snippet: %s", analysis[:400])
+        except Exception as exc:
+            logger.warning("LLM analysis failed for this iteration: %s", exc)
         # --- Step 7: Iterate ---
         state = update_state(state, iteration_id, results)
         save_state(EXPERIMENTS_DIR, state)
