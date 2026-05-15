@@ -21,7 +21,7 @@ Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
 like:
-   python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
+   python3 agent.py --iterations 6 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -127,6 +127,8 @@ CRITICAL RULES - READ CAREFULLY:
    
    CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
    NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+
+   CRUCIAL: - Ensure that the number of channels in each convolutional layer matches the expected input channels.
    
    Correct structure:
    - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
@@ -166,7 +168,8 @@ CRITICAL RULES - READ CAREFULLY:
     - CRITICAL: Do NOT hardcode the number of output classes in the final Linear layer. You must use the provided num_species variable (which is currently 206) to define the final out_features of the model.
     - CRITICAL: Limit the validation dataset to a maximum of 5000 samples to keep evaluation times fast. Example: val_subset = torch.utils.data.Subset(val_loader.dataset, range(min(5000, len(val_loader.dataset)))); val_loader = torch.utils.data.DataLoader(val_subset, batch_size=32, shuffle=False)
     - CRITICAL: You must evaluate the final AUC on a separate validation set (e.g., using val_loader), NEVER the train_loader. You must split the dataset into train and validation sets before creating the DataLoaders.
- 
+    - CRITICAL: Do not hardcode the model's output layer to 234 if the training dataset contains fewer classes. Dynamically size the final layer to match the exact number of unique labels present in the training data (e.g., 206). The downstream inference script handles necessary zero-padding for Kaggle submission.
+
 
 6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
     Each iteration should try different hyperparameters to accelerate convergence.

@@ -21,4 +21,7 @@ Iteration 87: Increased training samples to 15,000: took 6 minuntes to run each 
 
 To decrease messiness and save VM space, created 50 iteration long buckets and deleted all models except the best one
 
+each sucesfull iteration is taking abou 10 minutes to run
 iteration 94: *Timeouts:** The latest experiment timed out after 600 seconds (10 minutes) -> ran 10 more iteratations and if problem persists, will need to investigate further and potentially optimize code or increase timeout limit.
+
+Iteration 95: new max AUC: 0.76!  Script completed in 469.9 s., took 10 minutes for the whole run. Was also the first of the cycle (1/10)

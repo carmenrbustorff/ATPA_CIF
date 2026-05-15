@@ -1,7 +1,7 @@
 {
-  "iteration": 95,
-  "best_auc": 0.5629308668469091,
-  "best_iteration": "iter_0086_20260515_083151",
+  "iteration": 105,
+  "best_auc": 0.7601971785250397,
+  "best_iteration": "iter_0095_20260515_143040",
   "history": [
     {
       "iteration": "iter_0000_20260430_163003",
@@ -723,7 +723,71 @@
       "iteration": "iter_0094_20260515_140747",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0095_20260515_143040",
+      "auc": 0.7601971785250397,
+      "metrics": {
+        "final_train_loss": 0.029435594157656713,
+        "final_auc": 0.7601971785250397,
+        "num_params": 53902,
+        "epochs_trained": 10,
+        "batch_size": 16,
+        "training_samples": 15000,
+        "eval_samples": 5000
+      }
+    },
+    {
+      "iteration": "iter_0096_20260515_144046",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0097_20260515_144256",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0098_20260515_144459",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0099_20260515_144731",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0100_20260515_144947",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0101_20260515_150157",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0102_20260515_151410",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0103_20260515_151634",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0104_20260515_151854",
+      "auc": 0.0,
+      "metrics": {}
     }
   ],
-  "top_models": []
+  "top_models": [
+    {
+      "auc": 0.7601971785250397,
+      "path": "/home/carme/ATPA_CIF/experiments/iterations_0051-0100/iter_0095_20260515_143040/model.pt",
+      "iteration": "iter_0095_20260515_143040"
+    }
+  ]
 }
