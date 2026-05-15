@@ -1,0 +1,130 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+
+# Hyperparameters for this iteration
+NUM_SPECIES = 206
+MAX_EPOCHS = 20
+PATIENCE = 5
+BATCH_SIZE = 32
+LEARNING_RATE = 0.001
+DROPOUT_RATE = 0.5
+L2_REGULARIZATION = 1e-4
+
+# Data paths
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Build dataloaders
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=BATCH_SIZE,
+    augment=True,
+    val_split=0.2,
+)
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species, dropout_rate=0.5):
+        super(BirdCLEFModel, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(64, 128), nn.ReLU(), nn.Dropout(dropout_rate),
+            nn.Linear(128, num_species)  # NO BatchNorm1d!
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model, loss function, and optimizer
+model = BirdCLEFModel(num_species=NUM_SPECIES, dropout_rate=DROPOUT_RATE).to('cuda')
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=L2_REGULARIZATION)
+
+# Early stopping setup
+best_auc = 0.0
+patience_counter = 0
+
+# Training loop
+for epoch in range(MAX_EPOCHS):
+    model.train()
+    train_loss = 0.0
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        try:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            torch.cuda.empty_cache()
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                print(f"OOM detected. Reducing batch size from {BATCH_SIZE} to {BATCH_SIZE // 2}")
+                BATCH_SIZE //= 2
+                optimizer.zero_grad()
+                continue
+        
+    # Validation step
+    model.eval()
+    all_preds = []
+    all_labels = []
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            preds = outputs.cpu().numpy()
+            all_preds.append(preds)
+            all_labels.append(labels.cpu().numpy())
+    
+    all_preds = np.vstack(all_preds)
+    all_labels = np.vstack(all_labels)
+    auc_score = roc_auc_score(all_labels, all_preds, average='weighted')
+    
+    print(f"Epoch {epoch+1}, Train Loss: {train_loss / len(train_loader)}, Val AUC: {auc_score}")
+    
+    # Early stopping
+    if auc_score > best_auc:
+        best_auc = auc_score
+        patience_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        patience_counter += 1
+        if patience_counter >= PATIENCE:
+            print("Early stopping triggered")
+            break
+
+# Save metrics to JSON
+metrics = {
+    "final_train_loss": train_loss / len(train_loader),
+    "final_auc": auc_score,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+This script defines a new model architecture with 2 convolutional layers, uses the Adam optimizer with L2 regularization, and implements early stopping based on validation AUC. The training loop includes handling for out-of-memory errors by reducing the batch size if necessary. Finally, it saves the model weights and metrics to files as required.

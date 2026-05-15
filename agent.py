@@ -82,6 +82,10 @@ CRITICAL RULES - READ CAREFULLY:
    import json
    from tqdm import tqdm
 
+
+- CRITICAL: Missing Imports Fix. If you use the 'T.' alias for transforms (e.g., SpecAugment), you MUST explicitly include 'import torchaudio.transforms as T' at the top of the script.
+
+
 1. STRICTLY PYTORCH: You are absolutely forbidden from using TensorFlow, Keras, or `model.fit()`.
 2. DATA INGESTION & AUGMENTATION: You must use our pre-built PyTorch DataLoader. Do not write your own data loaders.
     Use the build_train_val_dataloaders function from data_loader.py to create both training and validation loaders with correct augmentation:
@@ -100,7 +104,8 @@ CRITICAL RULES - READ CAREFULLY:
     - If you use build_dataloader directly, set augment=True for training and augment=False for validation.
     - Do NOT use get_dataloader; use build_train_val_dataloaders for all new code.
     - CRITICAL: The full dataset contains naturally corrupted .ogg files. You MUST wrap your audio loading function (e.g., torchaudio.load or librosa.load) inside a try/except block within the __getitem__ method of your Dataset class. If a file fails to load, catch the exception, print a small warning, and recursively load a random different index (e.g., return self.__getitem__(random.randint(0, len(self) - 1))). NEVER return None.
-    
+    - CRITICAL: DataLoader Performance. You MUST set 'num_workers=4' (or 8) and 'pin_memory=True' in your DataLoader to prevent CPU bottlenecking.
+
 
     
     For validation, always use the val_loader returned by build_train_val_dataloaders.
@@ -135,6 +140,8 @@ CRITICAL RULES - READ CAREFULLY:
    
    CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
    NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+
+    CRITICAL: Wrap the batch training step in a try/except RuntimeError block. If an 'out of memory' error is caught, immediately run torch.cuda.empty_cache(), reduce the current batch_size by half, and retry the batch. Do not allow OOM to crash the script.
 
    CRUCIAL: - Ensure that the number of channels in each convolutional layer matches the expected input channels.
    
@@ -179,13 +186,12 @@ CRITICAL RULES - READ CAREFULLY:
     - CRITICAL: The model is severely overfitting. You MUST use heavy regularization. Include Dropout layers (e.g., p=0.5) in the classifier and use weight_decay (e.g., 1e-4 or 1e-5) in the Adam optimizer.
     - CRITICAL: Set the batch_size to 32 to stabilize gradients under SpecAugment. If you hit a CUDA Out of Memory error, gracefully fallback to 16.
     - CRITICAL: Set max_epochs to 40. However, you MUST implement an Early Stopping callback. Monitor the validation AUC and stop training if it does not improve for 5 consecutive epochs to save GPU time.
-    -You must implement Early Stopping: stop training if validation AUC does not improve for 5 consecutive epochs
+    - You must implement Early Stopping: stop training if validation AUC does not improve for 5 consecutive epochs
     - You must split the dataset into train and validation sets before creating DataLoaders. Always evaluate AUC on the validation set, not the training set.
-    
+    - CRITICAL: When calculating validation AUC with sklearn.metrics.roc_auc_score for multi-class datasets, you MUST include the parameter multi_class='ovr'. Do not rely on the default binary settings.
+        
 
 
-    - CRITICAL: Wrap the batch training step in a try/except RuntimeError block. If an 'out of memory' error is caught, immediately run torch.cuda.empty_cache(), reduce the current batch_size by half, and retry the batch. Do not allow OOM to crash the script.
-    
 
     Each iteration should try different hyperparameters to accelerate convergence.
     Use this heuristic based on iteration number to vary systematically:

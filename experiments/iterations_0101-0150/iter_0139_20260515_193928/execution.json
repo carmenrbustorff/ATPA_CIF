@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-15 19:40:26,860 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 19:40:28,499 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 19:40:28,509 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-15 19:40:28,530 | INFO     | data_loader | Stratified split \u2014 train: 28436  val: 7109  dropped: 4\n2026-05-15 19:40:28,531 | INFO     | data_loader | Train: 889 batches  |  Val: 223 batches  (batch_size=32)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0101-0150/iter_0139_20260515_193928/train.py\", line 73, in <module>\n    model = BirdClassifier(num_species=train_loader.dataset.num_classes)\n                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'Subset' object has no attribute 'num_classes'\n",
+  "timed_out": false,
+  "duration_s": 7.64
+}
