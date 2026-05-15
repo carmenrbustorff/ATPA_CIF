@@ -686,6 +686,77 @@ def analyse_results(
 # Iteration state helpers
 # ---------------------------------------------------------------------------
 
+def get_iteration_bucket_dir(experiments_dir: Path, global_iter: int, bucket_size: int = 50) -> Path:
+    """
+    Return the bucket directory for a given iteration number.
+    Organizes iterations into folders like iterations_0001-0050/, iterations_0051-0100/, etc.
+    """
+    bucket_num = global_iter // bucket_size
+    start = bucket_num * bucket_size + 1
+    end = (bucket_num + 1) * bucket_size
+    bucket_dir = experiments_dir / f"iterations_{start:04d}-{end:04d}"
+    return bucket_dir
+
+
+def manage_model_checkpoints(
+    state: Dict,
+    iteration_id: str,
+    iteration_dir: Path,
+    auc: float,
+    keep_top_n: int = 1,
+) -> Dict:
+    """
+    Manage model checkpoints to keep only the top N best models.
+    Deletes older model files when a better one is found.
+    
+    Parameters
+    ----------
+    state: Current agent state dict
+    iteration_id: Current iteration identifier
+    iteration_dir: Path to current iteration directory
+    auc: AUC score for current iteration
+    keep_top_n: Number of top models to keep (default: 1, options: 1 or 3)
+    
+    Returns
+    -------
+    Updated state dict with top_models list
+    """
+    model_path = iteration_dir / "model.pt"
+    
+    # Initialize top_models list if not present
+    if "top_models" not in state:
+        state["top_models"] = []  # List of dicts: {"auc": X, "path": Y, "iteration": Z}
+    
+    # Add current model to tracking (if model.pt exists)
+    if model_path.exists():
+        state["top_models"].append({
+            "auc": auc,
+            "path": str(model_path),
+            "iteration": iteration_id,
+        })
+        
+        # Sort by AUC (descending) and keep only top N
+        state["top_models"].sort(key=lambda x: x["auc"], reverse=True)
+        
+        # Delete models outside top N
+        for model_info in state["top_models"][keep_top_n:]:
+            old_path = Path(model_info["path"])
+            if old_path.exists():
+                old_path.unlink()
+                logger.info("Deleted old model: %s (AUC: %.4f)", old_path, model_info["auc"])
+        
+        # Keep only top N in the list
+        state["top_models"] = state["top_models"][:keep_top_n]
+        
+        logger.info(
+            "Top %d models: %s",
+            keep_top_n,
+            ", ".join([f"{m['iteration']}(AUC={m['auc']:.4f})" for m in state["top_models"]]),
+        )
+    
+    return state
+
+
 def load_state(experiments_dir: Path) -> Dict:
     """Load persistent agent state (best results, iteration counter)."""
     state_file = experiments_dir / "agent_state.json"
@@ -700,8 +771,8 @@ def save_state(experiments_dir: Path, state: Dict) -> None:
     state_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
 
-def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
-    """Update state with the latest iteration results."""
+def update_state(state: Dict, iteration_id: str, results: Dict, iteration_dir: Path) -> Dict:
+    """Update state with the latest iteration results and manage model checkpoints."""
     metrics = results.get("metrics", {})
     auc = metrics.get("final_auc", 0.0)  # Changed from final_val_auc to final_auc
     if auc > state["best_auc"]:
@@ -711,6 +782,11 @@ def update_state(state: Dict, iteration_id: str, results: Dict) -> Dict:
     state["history"].append(
         {"iteration": iteration_id, "auc": auc, "metrics": metrics}
     )
+    
+    # Manage model checkpoints: keep only the best model (or top 3 if you prefer)
+    # Change keep_top_n to 3 if you want to keep 3 models instead of 1
+    state = manage_model_checkpoints(state, iteration_id, iteration_dir, auc, keep_top_n=1)
+    
     state["iteration"] += 1
     return state
 
@@ -763,7 +839,9 @@ def run_agent(
     for i in range(num_iterations):
         global_iter = state["iteration"]
         iteration_id = datetime.now(timezone.utc).strftime(f"iter_{global_iter:04d}_%Y%m%d_%H%M%S")
-        iteration_dir = EXPERIMENTS_DIR / iteration_id
+        # Organize iterations into buckets (iterations_0001-0050, iterations_0051-0100, etc.)
+        bucket_dir = get_iteration_bucket_dir(EXPERIMENTS_DIR, global_iter, bucket_size=50)
+        iteration_dir = bucket_dir / iteration_id
         iteration_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("=" * 60)
@@ -815,7 +893,7 @@ def run_agent(
         except Exception as exc:
             logger.warning("LLM analysis failed for this iteration: %s", exc)
         # --- Step 7: Iterate ---
-        state = update_state(state, iteration_id, results)
+        state = update_state(state, iteration_id, results, iteration_dir)
         save_state(EXPERIMENTS_DIR, state)
 
         logger.info(

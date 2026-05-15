@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0043_20260513_141813/train.py\", line 11, in <module>\n    import torch\nModuleNotFoundError: No module named 'torch'\n",
+  "timed_out": false,
+  "duration_s": 0.05
+}

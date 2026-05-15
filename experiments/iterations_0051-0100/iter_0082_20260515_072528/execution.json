@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0082_20260515_072528/train.py\", line 49, in <module>\n    for epoch in range(epochs):\n                       ^^^^^^\nNameError: name 'epochs' is not defined\n",
+  "timed_out": false,
+  "duration_s": 8.77
+}

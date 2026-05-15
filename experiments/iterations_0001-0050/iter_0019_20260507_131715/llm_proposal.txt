@@ -1,0 +1,99 @@
+Given the constraints of needing to run on CPU within ≤ 90 minutes and the need for multi-label classification, we'll design a lightweight yet effective Convolutional Neural Network (CNN) using TensorFlow/Keras. This model will be suitable for rapid iterations with small-scale data.
+
+### Model Architecture:
+- **Input Layer**: Accepts mel-spectrograms of shape `(128, 10, 1)` where `128` is the number of Mel frequency bins and `10` is the time frame.
+- **Convolutional Layers**: A few convolutional layers to extract features from the spectrograms.
+- **Pooling Layers**: Max pooling layers for downsampling.
+- **Flatten Layer**: Converts 2D matrix into a vector.
+- **Dense Layers**: Fully connected layers for classification.
+- **Output Layer**: Uses `sigmoid` activation for multi-label classification.
+
+### Data Loading Assumptions:
+- Mel-spectrograms are precomputed and stored in a directory structure where each subdirectory corresponds to a species.
+- Spectrograms are of consistent size `(128, 10)`.
+
+### Training Loop:
+- We use binary cross-entropy loss suitable for multi-label classification.
+- Adam optimizer is used for efficient training.
+- Data augmentation techniques such as random horizontal flipping and vertical shifting are applied during training to improve generalization.
+
+### Evaluation Code:
+- Metrics like AUC (Area Under the Curve) will be computed using `tf.keras.metrics.AUC`.
+
+Here's the complete code:
+
+```python
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Define the model architecture
+def create_model(input_shape=(128, 10, 1), num_classes=234):
+    inputs = Input(shape=input_shape)
+    
+    # Convolutional blocks
+    x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = MaxPooling2D((2, 2))(x)
+    x = Dropout(0.25)(x)
+
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = MaxPooling2D((2, 2))(x)
+    x = Dropout(0.25)(x)
+
+    # Flatten and dense layers
+    x = Flatten()(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dropout(0.5)(x)
+
+    # Output layer
+    outputs = Dense(num_classes, activation='sigmoid')(x)
+    
+    model = Model(inputs=inputs, outputs=outputs)
+    return model
+
+# Create the model instance
+model = create_model()
+
+# Compile the model
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',
+              metrics=[tf.keras.metrics.AUC(multi_label=True)])
+
+# Data generators for training and validation
+train_datagen = ImageDataGenerator(
+    horizontal_flip=True,
+    vertical_shift_range=0.1,
+    rescale=1./255.,
+    validation_split=0.2)
+
+train_generator = train_datagen.flow_from_directory(
+    '/home/carme/birdclef-data',
+    target_size=(128, 10),
+    batch_size=32,
+    class_mode='multi_output',  # Use 'multi_output' for multi-label classification
+    subset='training')
+
+validation_generator = train_datagen.flow_from_directory(
+    '/home/carme/birdclef-data',
+    target_size=(128, 10),
+    batch_size=32,
+    class_mode='multi_output',
+    subset='validation')
+
+# Train the model
+model.fit(train_generator,
+          validation_data=validation_generator,
+          epochs=5)
+
+# Evaluate the model (example on validation data)
+results = model.evaluate(validation_generator)
+print(f'Validation Loss: {results[0]}, Validation AUC: {results[1]}')
+```
+
+### Explanation:
+- **Model Architecture**: The CNN is designed to be simple yet effective. It includes two convolutional blocks followed by dense layers. Dropout is used to prevent overfitting.
+- **Data Augmentation**: Techniques like horizontal flipping and vertical shifting are applied to augment the training data, which helps in improving the model's robustness.
+- **Training Loop**: The model is trained using binary cross-entropy loss and evaluated on validation data using AUC as a metric. This setup ensures that we can quickly iterate over different architectures and hyperparameters.
+
+This approach should allow for rapid experimentation and tuning while adhering to the constraints of CPU execution time and memory limitations.

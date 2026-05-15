@@ -1,0 +1,10 @@
+{
+  "data_dir": "/home/carme/birdclef-data",
+  "timestamp": "2026-04-30T16:33:29.051316",
+  "audio_files": 46207,
+  "unique_species": 207,
+  "total_duration_estimate_s": 231035,
+  "notes": [
+    "Found 46207 audio files across 207 species directories."
+  ]
+}

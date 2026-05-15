@@ -1,0 +1,134 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Constants
+NUM_SPECIES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Hyperparameters for iteration 1 (iteration % 3 == 1)
+batch_size = 16
+lr = 0.0001
+num_conv_layers = 3
+dropout_rate = 0.2
+l2_reg = 0.0001
+
+# Model architecture
+class BirdClassifier(nn.Module):
+    def __init__(self, num_species, num_conv_layers, dropout_rate):
+        super(BirdClassifier, self).__init__()
+        channels = [32, 64, 128, 256][:num_conv_layers]
+        
+        conv_layers = []
+        for i in range(num_conv_layers):
+            if i == 0:
+                conv_layers.append(nn.Conv2d(1, channels[i], 3, padding=1))
+            else:
+                conv_layers.append(nn.Conv2d(channels[i-1], channels[i], 3, padding=1))
+            conv_layers.append(nn.BatchNorm2d(channels[i]))
+            conv_layers.append(nn.ReLU())
+        
+        self.conv_layers = nn.Sequential(*conv_layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(channels[-1], 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Data loading
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)
+
+# Limit dataset to 5000 samples for fast feedback
+subset = torch.utils.data.Subset(train_loader.dataset, range(min(5000, len(train_loader.dataset))))
+train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
+
+# Model, loss function, and optimizer
+model = BirdClassifier(num_species=NUM_SPECIES, num_conv_layers=num_conv_layers, dropout_rate=dropout_rate)
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2_reg)
+
+if torch.cuda.is_available():
+    model.to('cuda')
+
+# Training loop
+num_epochs = 6
+final_train_loss = None
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    
+    for inputs, labels in tqdm(train_loader):
+        if torch.cuda.is_available():
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item()
+        torch.cuda.empty_cache()  # Prevent GPU fragmentation
+    
+    epoch_train_loss = running_loss / len(train_loader)
+    print(f'Epoch {epoch+1}, Loss: {epoch_train_loss}')
+    
+    final_train_loss = epoch_train_loss
+
+# Evaluation
+model.eval()
+all_preds, all_labels = [], []
+
+with torch.no_grad():
+    for inputs, labels in train_loader:
+        if torch.cuda.is_available():
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        outputs = model(inputs)
+        preds = (outputs > 0.5).float().cpu().numpy()
+        all_preds.extend(preds.tolist())
+        all_labels.extend(labels.cpu().numpy())
+
+from sklearn.metrics import roc_auc_score
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+print(f'Final AUC: {final_auc}')
+
+# Save metrics and model checkpoint
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": num_epochs,
+    "batch_size": batch_size,
+    "training_samples": 5000,
+    "eval_samples": len(train_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation:
+- **Model Architecture**: The model uses a specified number of convolutional layers with Batch Normalization and ReLU activation. It then flattens the features using `AdaptiveAvgPool2d` and passes them through two linear layers with dropout for regularization.
+- **Training Loop**: The loop trains the model for 6 epochs, using a subset of 5000 samples to ensure rapid iteration. Loss is reported per epoch.
+- **Evaluation**: The model is evaluated on the same dataset used for training (due to the constraint of using only one dataloader). AUC is computed and saved.
+- **Hyperparameters**: These are set based on the iteration number, with systematic exploration of batch size, learning rate, depth of convolutional layers, dropout rate, and L2 regularization.
