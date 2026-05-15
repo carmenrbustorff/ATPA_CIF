@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0084_20260515_074216/train.py\", line 51, in <module>\n    train_loader.dataset.data = train_loader.dataset.data[:BATCH_LIMIT]\n                                ^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'BirdCLEFDataset' object has no attribute 'data'\n",
+  "timed_out": false,
+  "duration_s": 3.16
+}

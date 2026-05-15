@@ -1,0 +1,101 @@
+Given the constraints of small-scale, fast iterations and the need to run on CPU in ≤ 90 minutes, we can start with a simple yet effective Convolutional Neural Network (CNN) architecture. This CNN will be designed to handle mel-spectrogram inputs efficiently. We'll use TensorFlow/Keras for this task due to its ease of use and quick prototyping capabilities.
+
+### Model Architecture
+- **Input Layer**: Accepts mel-spectrograms of shape `(128, 128, 3)` (height, width, channels).
+- **Convolutional Layers**: A few convolutional layers with ReLU activations to extract features.
+- **Pooling Layers**: Max pooling layers after each convolutional layer to reduce spatial dimensions.
+- **Dropout Layers**: To prevent overfitting.
+- **Dense Layers**: Fully connected layers to make final predictions.
+- **Output Layer**: Sigmoid activation for multi-label classification.
+
+### Training Loop
+- **Data Loading**: Use `tf.data.Dataset` API for efficient data loading and preprocessing.
+- **Optimizer**: Adam optimizer with a learning rate of 0.001.
+- **Loss Function**: Binary cross-entropy loss suitable for multi-label classification.
+- **Metrics**: AUC (Area Under the Curve) to evaluate model performance.
+
+### Evaluation
+- Evaluate the model on a validation set using the AUC metric.
+
+Here is the complete code:
+
+```python
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.optimizers import Adam
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+# Define the CNN model
+def create_model(input_shape=(128, 128, 3), num_classes=234):
+    model = models.Sequential([
+        layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        layers.MaxPooling2D((2, 2)),
+        layers.Dropout(0.25),
+        
+        layers.Conv2D(64, (3, 3), activation='relu'),
+        layers.MaxPooling2D((2, 2)),
+        layers.Dropout(0.25),
+        
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.5),
+        layers.Dense(num_classes, activation='sigmoid')
+    ])
+    
+    model.compile(optimizer=Adam(learning_rate=0.001),
+                  loss='binary_crossentropy',
+                  metrics=[tf.keras.metrics.AUC(multi_label=True)])
+    
+    return model
+
+# Load and preprocess data
+def load_data(data_dir):
+    # Placeholder for actual data loading logic
+    # This should be replaced with actual code to load mel-spectrograms and labels
+    # For demonstration, let's create some dummy data
+    np.random.seed(42)
+    X_train = np.random.rand(1000, 128, 128, 3)  # 1000 samples of shape (128, 128, 3)
+    y_train = np.random.randint(0, 2, size=(1000, 234))  # Binary labels for 234 classes
+    
+    X_val = np.random.rand(200, 128, 128, 3)  # 200 samples of shape (128, 128, 3)
+    y_val = np.random.randint(0, 2, size=(200, 234))  # Binary labels for 234 classes
+    
+    return X_train, y_train, X_val, y_val
+
+# Training loop
+def train_model(model, X_train, y_train, X_val, y_val, epochs=10, batch_size=32):
+    history = model.fit(X_train, y_train,
+                        validation_data=(X_val, y_val),
+                        epochs=epochs,
+                        batch_size=batch_size)
+    
+    return history
+
+# Evaluate the model
+def evaluate_model(model, X_val, y_val):
+    val_pred = model.predict(X_val)
+    auc_score = roc_auc_score(y_val, val_pred, multi_label=True)
+    print(f"Validation AUC: {auc_score}")
+
+# Main function to run the entire process
+def main():
+    data_dir = "/home/carme/birdclef-data"
+    X_train, y_train, X_val, y_val = load_data(data_dir)
+    
+    model = create_model()
+    history = train_model(model, X_train, y_train, X_val, y_val)
+    
+    evaluate_model(model, X_val, y_val)
+
+if __name__ == "__main__":
+    main()
+```
+
+### Explanation
+- **Model Architecture**: A simple CNN with a few convolutional and pooling layers followed by dense layers. The model ends with a sigmoid activation function to output probabilities for each of the 234 bird species.
+- **Data Loading**: Placeholder functions are used here to simulate loading mel-spectrograms and labels. In practice, you should replace these with actual data loading logic using `tf.data.Dataset`.
+- **Training Loop**: The model is compiled with an Adam optimizer and binary cross-entropy loss. It is trained for 10 epochs with a batch size of 32.
+- **Evaluation**: After training, the model's performance is evaluated on the validation set using AUC as the metric.
+
+This setup allows for rapid experimentation and can be scaled up by adjusting hyperparameters or adding more complex architectures as needed.

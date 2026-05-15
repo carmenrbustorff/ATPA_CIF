@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "Epoch 1/2, Batch 1: Loss: 0.6899221539497375\nEpoch 1/2, Batch 2: Loss: 0.6887674331665039\nEpoch 1/2, Batch 3: Loss: 0.68733149766922\nEpoch 1/2, Batch 4: Loss: 0.6868193745613098\nEpoch 1/2, Batch 5: Loss: 0.6856650114059448\nEpoch 1/2, Batch 6: Loss: 0.6844618916511536\nEpoch 1/2, Batch 7: Loss: 0.6839926242828369\nEpoch 1/2, Batch 8: Loss: 0.6821445822715759\nEpoch 1/2, Batch 9: Loss: 0.6814402341842651\nEpoch 1/2, Batch 10: Loss: 0.6790733337402344\n",
+  "stderr": "\n  0%|          | 0/2222 [00:00<?, ?it/s]\n  0%|          | 1/2222 [00:02<1:21:42,  2.21s/it]\n  0%|          | 3/2222 [00:02<22:55,  1.61it/s]  \n  0%|          | 5/2222 [00:02<12:21,  2.99it/s]\n  0%|          | 7/2222 [00:02<08:08,  4.54it/s]\n  0%|          | 9/2222 [00:02<06:04,  6.08it/s]\n  0%|          | 10/2222 [00:03<11:14,  3.28it/s]\n\n  0%|          | 0/2222 [00:00<?, ?it/s]\n  0%|          | 0/2222 [00:00<?, ?it/s]\nTraceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0047_20260513_144348/train.py\", line 125, in <module>\n    train_loader.dataset.eval()  # Switch dataset to eval mode for validation\n    ^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'BirdCLEFDataset' object has no attribute 'eval'\n",
+  "timed_out": false,
+  "duration_s": 11.77
+}

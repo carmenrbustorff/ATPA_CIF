@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0041_20260513_125251/train.py\", line 33, in <module>\n    train_loader, val_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)\n    ^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: too many values to unpack (expected 2)\n",
+  "timed_out": false,
+  "duration_s": 4.75
+}

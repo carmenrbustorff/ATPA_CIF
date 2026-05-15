@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "Epoch 1, Loss: 0.6721395655320241\nEpoch 2, Loss: 0.0\nValidation AUC: 0.5022847352447266\nMETRICS: {\"final_train_loss\": 0.6721395655320241, \"final_auc\": 0.5022847352447266, \"num_params\": 1746154, \"epochs_trained\": 2, \"batch_size\": 32, \"training_samples\": 5000, \"eval_samples\": 4992}\n",
+  "stderr": "/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/sklearn/metrics/_ranking.py:442: UndefinedMetricWarning: Only one class is present in y_true. ROC AUC score is not defined in that case.\n  warnings.warn(\n",
+  "timed_out": false,
+  "duration_s": 366.12,
+  "metrics": {
+    "final_train_loss": 0.6721395655320241,
+    "final_auc": 0.5022847352447266,
+    "num_params": 1746154,
+    "epochs_trained": 2,
+    "batch_size": 32,
+    "training_samples": 5000,
+    "eval_samples": 4992
+  }
+}

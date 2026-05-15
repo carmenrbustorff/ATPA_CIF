@@ -1,0 +1,111 @@
+Given the constraints of the BirdCLEF+ 2026 Track B competition, particularly the need for small-scale, fast iterations that can run on a CPU within 90 minutes, we will propose a simple yet effective model architecture using TensorFlow/Keras. This architecture will leverage a Convolutional Neural Network (CNN) with Global Average Pooling and a Dense layer to handle multi-label classification. We'll assume the preprocessed mel-spectrograms are stored in a dataset that can be easily loaded into TensorFlow's `tf.data.Dataset`.
+
+Here’s the proposed model architecture, along with a training loop and evaluation code:
+
+```python
+import tensorflow as tf
+from tensorflow.keras.layers import Conv2D, BatchNormalization, Activation, GlobalAveragePooling2D, Dense, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+# Define the model architecture
+def create_model(input_shape=(128, 64, 3), num_classes=234):
+    inputs = tf.keras.Input(shape=input_shape)
+    
+    # Convolutional Block 1
+    x = Conv2D(32, (3, 3), padding='same')(inputs)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    
+    # Convolutional Block 2
+    x = Conv2D(64, (3, 3), padding='same')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    
+    # Global Average Pooling and Dense Layer
+    x = GlobalAveragePooling2D()(x)
+    x = Dropout(0.5)(x)  # Adding dropout to prevent overfitting
+    outputs = Dense(num_classes, activation='sigmoid')(x)  # Sigmoid for multi-label classification
+    
+    model = Model(inputs=inputs, outputs=outputs)
+    return model
+
+# Compile the model
+model = create_model()
+model.compile(optimizer=Adam(learning_rate=0.001),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+# Data loading assumptions: Assuming we have a function `load_dataset` that returns train and validation datasets
+def load_dataset(data_dir, batch_size=32):
+    # Dummy function to simulate dataset loading
+    # Replace this with actual data loading logic using TensorFlow's tf.data API
+    (train_images, train_labels), (val_images, val_labels) = tf.keras.datasets.cifar10.load_data()
+    # Convert labels to one-hot encoding and select a subset of classes for demonstration
+    train_labels = tf.one_hot(train_labels.flatten(), depth=234)[:len(train_images)]
+    val_labels = tf.one_hot(val_labels.flatten(), depth=234)[:len(val_images)]
+    # Preprocess images
+    train_images = train_images / 255.0
+    val_images = val_images / 255.0
+    
+    # Create TensorFlow datasets
+    train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels))
+    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
+    
+    val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels))
+    val_dataset = val_dataset.batch(batch_size)
+    
+    return train_dataset, val_dataset
+
+# Load the dataset
+train_dataset, val_dataset = load_dataset('/home/carme/birdclef-data')
+
+# Train the model
+history = model.fit(train_dataset,
+                    epochs=10,  # Adjust number of epochs as needed
+                    validation_data=val_dataset)
+
+# Evaluation function to compute AUC for multi-label classification
+def evaluate_model(model, dataset):
+    y_true = []
+    y_pred = []
+    
+    for images, labels in dataset:
+        predictions = model.predict(images)
+        y_true.extend(labels.numpy())
+        y_pred.extend(predictions)
+    
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    # Compute AUC for each class and the average
+    auc_scores = roc_auc_score(y_true, y_pred, average=None)
+    avg_auc = np.mean(auc_scores)
+    
+    return avg_auc, auc_scores
+
+# Evaluate the model on validation data
+avg_auc, auc_scores = evaluate_model(model, val_dataset)
+print(f"Average AUC: {avg_auc}")
+```
+
+### Explanation:
+1. **Model Architecture**:
+   - The model starts with two convolutional blocks, each followed by batch normalization and ReLU activation.
+   - Global Average Pooling is used to reduce the spatial dimensions of the feature maps before passing them through a dropout layer for regularization.
+   - A dense layer with a sigmoid activation function is used for multi-label classification.
+
+2. **Data Loading**:
+   - The `load_dataset` function is a placeholder and should be replaced with actual data loading logic using TensorFlow's `tf.data.Dataset` API to efficiently handle the dataset.
+   - The function simulates loading mel-spectrogram data by using CIFAR-10 as a stand-in, preprocessing it, and converting labels to one-hot encoding for demonstration purposes.
+
+3. **Training**:
+   - The model is compiled with the Adam optimizer and binary cross-entropy loss, which is suitable for multi-label classification.
+   - Training is performed on the dataset with a validation split.
+
+4. **Evaluation**:
+   - The `evaluate_model` function computes the AUC score for each class and the average AUC across all classes to evaluate model performance in a multi-label setting.
+
+This setup allows for rapid experimentation by keeping the model architecture simple and training fast, fitting within the CPU constraint of ≤ 90 minutes.
