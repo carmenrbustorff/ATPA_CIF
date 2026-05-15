@@ -27,6 +27,7 @@ import os
 import random
 import sys
 from collections import Counter
+from functools import partial
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -111,7 +112,7 @@ class BirdCLEFDataset(Dataset):
     top_db:
         Dynamic range for AmplitudeToDB.
     augment:
-          If True, apply random time-shift augmentation (training only).
+        If True, apply random time-shift augmentation (training only).
     """
 
     def __init__(
@@ -172,6 +173,10 @@ class BirdCLEFDataset(Dataset):
         )
         self._amplitude_to_db = T.AmplitudeToDB(top_db=top_db)
 
+        # SpecAugment transforms — only applied when augment=True
+        self._time_masking = T.TimeMasking(time_mask_param=40)
+        self._freq_masking = T.FrequencyMasking(freq_mask_param=15)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -181,7 +186,7 @@ class BirdCLEFDataset(Dataset):
         Load an OGG file and return a mono waveform of exactly
         self.clip_samples frames.
 
-        A random ``self.clip_samples``-length window is extracted when the file
+        A random ``clip_samples``-length window is extracted when the file
         is longer; the waveform is zero-padded when it is shorter.
         """
         try:
@@ -213,6 +218,10 @@ class BirdCLEFDataset(Dataset):
             pad = self.clip_samples - total_samples
             waveform = torch.nn.functional.pad(waveform, (0, pad))
 
+        # Random Gaussian noise (training only)
+        if self.augment:
+            waveform = waveform + torch.randn_like(waveform) * 0.005
+
         return waveform  # shape: (1, clip_samples)
 
     def _waveform_to_melspec(self, waveform: torch.Tensor) -> torch.Tensor:
@@ -225,6 +234,12 @@ class BirdCLEFDataset(Dataset):
         mel = self._mel_transform(waveform)          # (1, n_mels, time)
         log_mel = self._amplitude_to_db(mel)          # (1, n_mels, time), range [-top_db, 0]
         log_mel = (log_mel + TOP_DB) / TOP_DB         # normalise to [0, 1]
+
+        # SpecAugment — time and frequency masking (training only)
+        if self.augment:
+            log_mel = self._time_masking(log_mel)
+            log_mel = self._freq_masking(log_mel)
+
         return log_mel.float()
 
     # ------------------------------------------------------------------
@@ -271,8 +286,7 @@ def build_dataloader(
     num_workers:
         Sub-processes for data loading. Defaults to min(3, cpu_count-1).
     pin_memory:
-        Enables faster CPU->GPU transfers via pinned memory. Set True when
-        running on a CUDA-capable host.
+        Enables faster CPU->GPU transfers via pinned memory.
     augment:
         Pass True during training to enable random window extraction.
     prefetch_factor:
@@ -306,6 +320,53 @@ def build_dataloader(
         pin_memory,
     )
     return loader
+
+
+# ---------------------------------------------------------------------------
+# Mixup collate function
+# ---------------------------------------------------------------------------
+
+def mixup_collate_fn(
+    batch: list,
+    alpha: float = 0.4,
+    num_classes: int = 206,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Mixup augmentation applied at the batch level.
+
+    Each spectrogram is linearly interpolated with a randomly chosen partner
+    from the same batch. Labels are mixed with the same lambda so the model
+    learns a soft target that reflects both species.
+
+    Parameters
+    ----------
+    batch:
+        List of (spectrogram, label) tuples from __getitem__.
+    alpha:
+        Beta distribution parameter controlling mix strength.
+    num_classes:
+        Total number of species — passed in from dataset.num_classes.
+
+    Returns
+    -------
+    (mixed_specs, mixed_labels) : Tuple[torch.Tensor, torch.Tensor]
+        mixed_specs  : (batch_size, 1, n_mels, time_frames)
+        mixed_labels : (batch_size, num_classes) soft one-hot float targets
+    """
+    specs, labels = zip(*batch)
+    specs  = torch.stack(specs)
+    labels = torch.tensor(labels)
+
+    one_hot = torch.zeros(len(labels), num_classes)
+    one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
+
+    lam = float(np.random.beta(alpha, alpha))
+    idx = torch.randperm(len(specs))
+
+    mixed_specs  = lam * specs   + (1 - lam) * specs[idx]
+    mixed_labels = lam * one_hot + (1 - lam) * one_hot[idx]
+
+    return mixed_specs, mixed_labels
 
 
 # ---------------------------------------------------------------------------
@@ -393,8 +454,13 @@ def build_train_val_dataloaders(
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
         drop_last=False,
     )
-    train_loader = DataLoader(Subset(train_dataset, train_idx), shuffle=True,  **loader_kwargs)
-    val_loader   = DataLoader(Subset(val_dataset,   val_idx),   shuffle=False, **loader_kwargs)
+    train_loader = DataLoader(
+        Subset(train_dataset, train_idx),
+        shuffle=True,
+        collate_fn=partial(mixup_collate_fn, num_classes=train_dataset.num_classes) if augment else None,
+        **loader_kwargs,
+    )
+    val_loader = DataLoader(Subset(val_dataset, val_idx), shuffle=False, **loader_kwargs)
 
     logger.info("Train: %d batches  |  Val: %d batches  (batch_size=%d)",
                 len(train_loader), len(val_loader), batch_size)
