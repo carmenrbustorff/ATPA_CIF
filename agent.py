@@ -21,7 +21,7 @@ Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
 like:
-   python3 agent.py --iterations 6 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
+   python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 NUM_SPECIES = 206  # Update this if dataset changes
-MAX_EXEC_TIMEOUT = 600   # seconds – 10 minutes max per generated script
+MAX_EXEC_TIMEOUT = 1000   # seconds 
 
 
 TASK_CONTEXT_TEMPLATE = """\
@@ -78,29 +78,34 @@ CRITICAL RULES - READ CAREFULLY:
    import torch.nn as nn
    import torch.nn.functional as F
    import torch.optim as optim
-   from dataset import get_dataloader
+   from data_loader import build_train_val_dataloaders
    import json
    from tqdm import tqdm
-   
-1. STRICTLY PYTORCH: You are absolutely forbidden from using TensorFlow, Keras, or `model.fit()`. 
-2. DATA INGESTION: You must use our pre-built PyTorch DataLoader. Do not write your own data loaders.
-    Use this code after imports:
-    
+
+1. STRICTLY PYTORCH: You are absolutely forbidden from using TensorFlow, Keras, or `model.fit()`.
+2. DATA INGESTION & AUGMENTATION: You must use our pre-built PyTorch DataLoader. Do not write your own data loaders.
+    Use the build_train_val_dataloaders function from data_loader.py to create both training and validation loaders with correct augmentation:
+
     DATA_DIR = "/mnt/disks/data/birdclef"
     METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
-    train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
-    
-    IMPORTANT: get_dataloader() returns ONLY ONE dataloader (not two).
-    WRONG: train_loader, val_loader = get_dataloader(...)  # This will crash!
-    RIGHT: train_loader = get_dataloader(...)  # Returns single DataLoader
-    
-    For validation, use the same train_loader in eval mode (see section 8).
+    train_loader, val_loader = build_train_val_dataloaders(
+        metadata_csv=METADATA_FILE,
+        audio_dir=DATA_DIR,
+        batch_size=32,
+        augment=True,      # Enable augmentation for training
+        val_split=0.2,     # 80/20 split
+    )
+
+    - ALWAYS use augment=True for training, augment=False for validation (handled automatically by build_train_val_dataloaders).
+    - If you use build_dataloader directly, set augment=True for training and augment=False for validation.
+    - Do NOT use get_dataloader; use build_train_val_dataloaders for all new code.
+
+    For validation, always use the val_loader returned by build_train_val_dataloaders.
 
     CRITICAL API CONSTRAINTS:
     - Do NOT call train_loader.dataset.set_mode(...): this method does not exist.
-    - Do NOT unpack get_dataloader into train/val loaders.
     - Do NOT use limit_samples(); limit work with a batch counter in the loop.
-    
+
     IMPORTANT: Dataset has NO limit_samples() method!
     WRONG: train_loader.dataset.limit_samples(15000)  # Method does NOT exist!
     RIGHT: Use batch_count tracking to limit iterations:
@@ -156,22 +161,25 @@ CRITICAL RULES - READ CAREFULLY:
    ```
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
-    - Use 10 epochs maximum for quick iteration
+    - Use 20 epochs maximum for quick iteration
     - Report loss per batch, not per epoch (shows progress)
     - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
     - Memory safety: If you get OOM, reduce batch_size and try again
     - Do NOT train the full dataset (saves time and memory)
-    - CRITICAL: To limit the training dataset for faster iteration, you MUST use torch.utils.data.Subset with exactly 15000 samples. Example: subset = torch.utils.data.Subset(train_loader.dataset, range(min(15000, len(train_loader.dataset))));
     - CRITICAL: Do NOT use break statements inside the training epoch loop to limit batches. The loop must be allowed to complete naturally.
     - CRITICAL: Use aggressive Dropout (e.g., 0.5) in the fully connected layers to prevent overfitting.
-    - CRITICAL: You must explicitly define all hyperparameter variables (e.g., epochs = 6, batch_size = 16) at the top of your training script before using them in any loops.
+    - CRITICAL: You must explicitly define all hyperparameter variables (e.g., epochs , batch_size ) at the top of your training script before using them in any loops.
     - CRITICAL: Do NOT hardcode the number of output classes in the final Linear layer. You must use the provided num_species variable (which is currently 206) to define the final out_features of the model.
-    - CRITICAL: Limit the validation dataset to a maximum of 5000 samples to keep evaluation times fast. Example: val_subset = torch.utils.data.Subset(val_loader.dataset, range(min(5000, len(val_loader.dataset)))); val_loader = torch.utils.data.DataLoader(val_subset, batch_size=32, shuffle=False)
     - CRITICAL: You must evaluate the final AUC on a separate validation set (e.g., using val_loader), NEVER the train_loader. You must split the dataset into train and validation sets before creating the DataLoaders.
     - CRITICAL: Do not hardcode the model's output layer to 234 if the training dataset contains fewer classes. Dynamically size the final layer to match the exact number of unique labels present in the training data (e.g., 206). The downstream inference script handles necessary zero-padding for Kaggle submission.
+    - CRITICAL: To prevent overfitting, you MUST implement audio-specific data augmentation in the training loop. Use torchaudio.transforms.FrequencyMasking and torchaudio.transforms.TimeMasking before passing the inputs to the model.
+    - CRITICAL: The model is severely overfitting. You MUST use heavy regularization. Include Dropout layers (e.g., p=0.5) in the classifier and use weight_decay (e.g., 1e-4 or 1e-5) in the Adam optimizer.
+    - CRITICAL: Set the batch_size to 32 to stabilize gradients under SpecAugment. If you hit a CUDA Out of Memory error, gracefully fallback to 16.
+    - CRITICAL: Set max_epochs to 40. However, you MUST implement an Early Stopping callback. Monitor the validation AUC and stop training if it does not improve for 5 consecutive epochs to save GPU time.
+    -You must implement Early Stopping: stop training if validation AUC does not improve for 5 consecutive epochs
+    - You must split the dataset into train and validation sets before creating DataLoaders. Always evaluate AUC on the validation set, not the training set.
+    
 
-
-6.5 SYSTEMATIC HYPERPARAMETER EXPLORATION (CRITICAL FOR SEARCH):
     Each iteration should try different hyperparameters to accelerate convergence.
     Use this heuristic based on iteration number to vary systematically:
     
@@ -199,7 +207,6 @@ CRITICAL RULES - READ CAREFULLY:
     - ALWAYS use AdaptiveAvgPool2d(1,1) for robust flattening
     - ALWAYS use BCELoss + Sigmoid activation (multi-label)
     - ALWAYS use Adam optimizer
-    - ALWAYS limit to 6 epochs for speed (full training later)
     
     Example iteration sequence:
     - Iter 1 (1%3=1): batch=16, lr=0.0001, 3 conv, dropout=0.2
@@ -249,10 +256,10 @@ CRITICAL RULES - READ CAREFULLY:
      "final_train_loss": 0.45,
      "final_auc": 0.82,
      "num_params": 45000,
-     "epochs_trained": 6,
+     "epochs_trained": 20,
      "batch_size": 16,
-     "training_samples": 15000,
-     "eval_samples": 5000
+     "training_samples": 35000,
+     "eval_samples": 15000
    }}
 
 Dataset summary:
@@ -422,7 +429,7 @@ def propose_and_generate_code(
         "import torch.nn as nn\n"
         "import torch.nn.functional as F\n"
         "import torch.optim as optim\n"
-        "from dataset import get_dataloader\n"
+        "from data_loader import build_train_val_dataloaders\n"
         "import json\n"
         "from tqdm import tqdm\n"
         "import numpy as np\n"
@@ -435,7 +442,7 @@ def propose_and_generate_code(
     skip_imports = {'import os', 'import torch', 'import json', 'from tqdm import tqdm', 
                     'import numpy as np', 'from sklearn.metrics import roc_auc_score',
                     'import torch.nn as nn', 'import torch.nn.functional as F', 
-                    'import torch.optim as optim', 'from dataset import get_dataloader'}
+                    'import torch.optim as optim', 'from data_loader import build_train_val_dataloaders'}
     for line in lines:
         stripped = line.strip()
         if any(stripped.startswith(skip) for skip in skip_imports):
@@ -473,10 +480,17 @@ import json
 import torch
 import torch.nn as nn
 import pathlib
+from data_loader import build_train_val_dataloaders
 
 DATA_DIR = "/mnt/disks/data/birdclef"
 METADATA_FILE = DATA_DIR + "/train.csv"
-train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=8)
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=8,
+    augment=True,
+    val_split=0.2,
+)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -494,21 +508,19 @@ class SimpleModel(nn.Module):
         x = x.view(x.size(0), -1)
         return torch.sigmoid(self.fc(x))
 
-model = SimpleModel(num_classes=NUM_SPECIES).to(device)
+model = SimpleModel(num_classes=206).to(device)
 criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training loop
-epochs = 6
+epochs = 20
 for epoch in range(epochs):
     loss_sum = 0.0
     batch_count = 0
     model.train()
-    
     for inputs, labels in train_loader:
         if batch_count >= 10:
             break  # This safely breaks the BATCH loop, but keeps the EPOCH loop alive
-            
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -518,16 +530,15 @@ for epoch in range(epochs):
         loss_sum += loss.item()
         batch_count += 1
         torch.cuda.empty_cache()
-        
     print(f"Epoch {epoch+1}, Loss: {loss_sum/max(1, batch_count):.4f}")
     # DO NOT put a break statement here!
-    
+
 # Evaluation loop: compute validation AUC
 model.eval()
 all_preds, all_labels = [], []
 eval_batch_count = 0
 with torch.no_grad():
-    for inputs, labels in train_loader:
+    for inputs, labels in val_loader:
         if eval_batch_count >= 10:
             break
         inputs, labels = inputs.to(device), labels.to(device)
@@ -552,7 +563,7 @@ metrics = {
     "final_train_loss": float(loss_sum / max(1, batch_count)) if batch_count > 0 else 0.0,
     "final_auc": final_auc,
     "num_params": sum(p.numel() for p in model.parameters()),
-    "epochs_trained": 6,
+    "epochs_trained": 20,
     "batch_size": batch_size,
     "training_samples": batch_count * batch_size,
     "eval_samples": eval_batch_count * batch_size,

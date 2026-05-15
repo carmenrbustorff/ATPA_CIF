@@ -25,3 +25,7 @@ each sucesfull iteration is taking abou 10 minutes to run
 iteration 94: *Timeouts:** The latest experiment timed out after 600 seconds (10 minutes) -> ran 10 more iteratations and if problem persists, will need to investigate further and potentially optimize code or increase timeout limit.
 
 Iteration 95: new max AUC: 0.76!  Script completed in 469.9 s., took 10 minutes for the whole run. Was also the first of the cycle (1/10)
+
+Added data augmentation to data loader and to agent task so it is able to perform it
+Model is severly overfitting, increase sample size to 35,000 for training and 15,000 for evaluation, epochs to 20
+
