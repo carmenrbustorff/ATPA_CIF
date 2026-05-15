@@ -18,3 +18,7 @@ Ready to increase sample size further, but will need to monitor GPU memory and t
     increase sample size further (e.g., 10,000 or 20,000) if GPU can handle it
 
 Iteration 87: Increased training samples to 15,000: took 6 minuntes to run each iteration with 6 epochs, batch size1 6. AUC= .501
+
+To decrease messiness and save VM space, created 50 iteration long buckets and deleted all models except the best one
+
+iteration 94: *Timeouts:** The latest experiment timed out after 600 seconds (10 minutes) -> ran 10 more iteratations and if problem persists, will need to investigate further and potentially optimize code or increase timeout limit.

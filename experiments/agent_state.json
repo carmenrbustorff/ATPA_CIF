@@ -1,5 +1,5 @@
 {
-  "iteration": 94,
+  "iteration": 95,
   "best_auc": 0.5629308668469091,
   "best_iteration": "iter_0086_20260515_083151",
   "history": [
@@ -718,6 +718,12 @@
       "iteration": "iter_0093_20260515_121358",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0094_20260515_140747",
+      "auc": 0.0,
+      "metrics": {}
     }
-  ]
+  ],
+  "top_models": []
 }
