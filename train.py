@@ -77,7 +77,7 @@ def validate(model, loader, criterion, device, num_classes, expand_rgb):
         probs = torch.sigmoid(logits).float().cpu().numpy()
         y_pred_list.append(probs)
     
-    y_true_idx = np.concatenate(y_true_list)  # shape: (n_samples,)
+    y_true_idx = np.concatenate(y_true_list).astype(int)  # shape: (n_samples,)
     y_prob = np.concatenate(y_pred_list)  # shape: (n_samples, num_classes)
     
     # Convert class indices to one-hot encoding
@@ -135,6 +135,19 @@ def main():
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {device}")
+
+        # Guard against wrong dataset path
+        from data_loader import METADATA_CSV, AUDIO_DIR
+        if not METADATA_CSV.exists():
+            raise FileNotFoundError(
+                f"Metadata CSV not found: {METADATA_CSV}\n"
+                "Check DATA_ROOT in data_loader.py points to the correct dataset."
+            )
+        if not AUDIO_DIR.exists():
+            raise FileNotFoundError(
+                f"Audio directory not found: {AUDIO_DIR}\n"
+                "Check DATA_ROOT in data_loader.py points to the correct dataset."
+            )
 
         # Load dataset (cached or on-the-fly)
         train_loader, val_loader = build_train_val_dataloaders(
