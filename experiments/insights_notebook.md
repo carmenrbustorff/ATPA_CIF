@@ -34,3 +34,26 @@ iteration 152: the agent is now hallucinating some non real issues (related to t
 
 DRAMA: From Iteration 96 onward, almost every run shows auc: 0.0 and metrics: {}.
 This means the PyTorch script train.py crashed before it even reached the end of the script to save the dictionary.
+
+Root cause of the "DRAMA" identified: A cascade of fatal pipeline exceptions was crashing train.py before the evaluation loop could calculate or save the JSON metrics.
+Data Loader Overhaul (The OGG Apocalypse): Discovered native torchaudio throws System errors when reading .ogg files on this Linux OS. Replaced backend with soundfile and implemented a recursive try/except failsafe so the DataLoader silently swaps out corrupted files instead of passing blank tensors or crashing.
+Architecture & AMP Stabilization: Fixed an AttributeError caused by PyTorch's Subset wrapper hiding the num_classes variable by enforcing a global NUM_SPECIES constant. Resolved a Mixed Precision (AMP) RuntimeError by stripping the final Sigmoid layer and enforcing BCEWithLogitsLoss to stabilize the FP16 math.
+Prompt Engineering (Breaking the Echo Chamber): The LLM got stuck in a confirmation bias loop, feeding its own broken code and path variables (causing an IsADirectoryError) back into subsequent iterations. Injected strict "Anti-Laziness" and "Self-Correction Override" constraints into the agent.py prompt to force the agent to ignore its flawed logic and explicitly use kwargs.
+AMP API Deprecation: The pipeline crashed due to TypeError and FutureWarning errors related to Mixed Precision. The agent hallucinated a mix of PyTorch 1.x and 2.x syntax (torch.cuda.amp.autocast("cuda")). Forced a hard migration to the torch.amp V2 API.
+Context Truncation: Discovered the LLM was failing to generate the validation loops not because of logic errors, but because it was exhausting its output token limit explaining its own code. Implemented a "Prioritize Code over Analysis" constraint to ensure the full train.py script writes to disk.
+
+Iteration 161+ (Strategic Pivot: Transfer Learning & Neural Scaling)
+Architecture Overhaul: Re-aligned the agent's objective with the project's advanced track requirements by deprecating from-scratch CNN generation. Enforced a strict transfer learning constraint, mandating the agent use the timm library to deploy pre-trained vision models (e.g., EfficientNet) optimized for 2D Mel-spectrograms. This offloads feature-extraction learning and significantly raises the baseline AUC.s
+Applying Neural Scaling Laws: Addressed the massive CPU/Compute bottlenecks caused by processing the full dataset. Enforced a strict subsetting protocol (5,000 training samples) to allow the autonomous loop to execute rapid, low-cost experimentation. Heavy compute and full datasets will be reserved solely for the exploitation phase once a winning architecture is identified.
+
+Iteration 161+ (YAMNet Integration & Hardware Scaling)
+Feature Extraction Pivot: Replaced the custom CNN approach with a frozen audio-specific pre-trained model (YAMNet). This aligns with the course's recommended transfer learning strategy. By freezing the base model, the architecture focuses exclusively on training a lightweight, multi-label classification head for the 206 Pantanal species.
+Batch Sizing & Scaling: The shift to a frozen feature extractor drastically reduced GPU VRAM consumption. Scaled the batch_size up to 128 to accelerate epoch times. Maintained a 5,000-sample subset strictly for architectural debugging (ensuring embedding tensors properly connect to the dense layers), with the intent to scale back to the full 35k dataset once the pipeline is proven mathematically stable.
+
+the agent is getting incredibly lazy so pivoting slgihtly, will add a more developed template into the task constraints for it to follow
+
+iteration 174: The agent has finally overcome its "laziness" and learned how to write the complete pipeline but the execution hit the 1000-second (16.6 minute) timeout limit.
+    forcing the agent to iterate faster by slashing the number of epochs during this exploratory phase, and give it a slightly larger timeout buffer just in case.
+175- Finally tracked metrics again! metrics.json: {'final_train_loss': 0.039597701948881146, 'final_auc': 0.5043372783298752, 'num_params': 4387850, 'epochs_trained': 3, 'batch_size': 128, 'training_samples': 5000, 'eval_samples': 1000}
+    UndefinedMetricWarning: Only one class is present in y_true. ROC AUC score is not defined in that case.
+        the agent needs to explicitly tell scikit-learn to skip calculating AUC for species that do not appear in that specific 1000-sample validation slice.

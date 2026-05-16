@@ -1,5 +1,5 @@
 {
-  "iteration": 154,
+  "iteration": 176,
   "best_auc": 0.7601971785250397,
   "best_iteration": "iter_0095_20260515_143040",
   "history": [
@@ -1034,6 +1034,124 @@
       "iteration": "iter_0153_20260516_111027",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0154_20260516_113246",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0155_20260516_113511",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0156_20260516_113723",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0157_20260516_114503",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0158_20260516_114711",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0159_20260516_115324",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0160_20260516_115820",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0161_20260516_120110",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0162_20260516_121411",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0163_20260516_123403",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0164_20260516_130559",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0165_20260516_130812",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0166_20260516_131032",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0167_20260516_131249",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0168_20260516_131456",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0169_20260516_131711",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0170_20260516_131917",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0171_20260516_133709",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0172_20260516_134410",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0173_20260516_134923",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0174_20260516_135458",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0175_20260516_141717",
+      "auc": 0.5043372783298752,
+      "metrics": {
+        "final_train_loss": 0.039597701948881146,
+        "final_auc": 0.5043372783298752,
+        "num_params": 4387850,
+        "epochs_trained": 3,
+        "batch_size": 128,
+        "training_samples": 5000,
+        "eval_samples": 1000
+      }
     }
   ],
   "top_models": [

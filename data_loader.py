@@ -30,7 +30,7 @@ from collections import Counter
 from functools import partial
 from pathlib import Path
 from typing import Optional, Tuple
-
+import soundfile as sf  # For robust OGG loading with error handling
 import numpy as np
 import pandas as pd
 import torch
@@ -200,13 +200,20 @@ class BirdCLEFDataset(Dataset):
         A random ``clip_samples``-length window is extracted when the file
         is longer; the waveform is zero-padded when it is shorter.
         """
-        try:
-            waveform, orig_sr = torchaudio.load(str(path))
-        except Exception as exc:
-            logger.warning("Failed to load %s: %s — returning silence", path, exc)
-            return torch.zeros(1, self.clip_samples)
+# Read the audio using soundfile (bypasses torchaudio .ogg bugs)
+        # Note: soundfile returns shape (frames, channels) or just (frames,) for mono
+        waveform_np, orig_sr = sf.read(str(path))
+        
+        # Convert to tensor
+        waveform = torch.from_numpy(waveform_np).float()
+        
+        # Format to torchaudio standard: (channels, frames)
+        if waveform.dim() == 2:
+            waveform = waveform.transpose(0, 1)  # Swap to (channels, frames)
+        else:
+            waveform = waveform.unsqueeze(0)     # Mono becomes (1, frames)
 
-        # Mix to mono
+        # Mix to mono if it has multiple channels
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
 
@@ -490,7 +497,16 @@ def build_train_val_dataloaders(
     train_idx = [eligible_idx[i] for i in train_local]
     val_idx   = [eligible_idx[i] for i in val_local]
 
-    logger.info("Stratified split — train: %d  val: %d  dropped: %d",
+    # --- NEURAL SCALING CAPPER ---
+    MAX_TRAIN = 5000
+    MAX_VAL = 1000
+
+    if len(train_idx) > MAX_TRAIN:
+        train_idx = random.sample(train_idx, MAX_TRAIN)
+    if len(val_idx) > MAX_VAL:
+        val_idx = random.sample(val_idx, MAX_VAL)
+
+    logger.info("Stratified split (CAPPED) — train: %d  val: %d  dropped: %d",
                 len(train_idx), len(val_idx), dropped)
 
     loader_kwargs = dict(
@@ -506,9 +522,9 @@ def build_train_val_dataloaders(
         Subset(train_dataset, train_idx),
         shuffle=True,
         collate_fn=partial(mixup_collate_fn, num_classes=train_dataset.num_classes) if (augment and not use_cache) else None,
-        **loader_kwargs,
+        **loader_kwargs, # type: ignore
     )
-    val_loader = DataLoader(Subset(val_dataset, val_idx), shuffle=False, **loader_kwargs)
+    val_loader = DataLoader(Subset(val_dataset, val_idx), shuffle=False, **loader_kwargs) #type: ignore
 
     logger.info("Train: %d batches  |  Val: %d batches  (batch_size=%d)",
                 len(train_loader), len(val_loader), batch_size)
@@ -576,7 +592,7 @@ if __name__ == "__main__":
     va_specs, va_labels = next(iter(val_loader))
     print(f"  Train batch   : specs={tuple(tr_specs.shape)}  labels={tuple(tr_labels.shape)}")
     print(f"  Val   batch   : specs={tuple(va_specs.shape)}  labels={tuple(va_labels.shape)}")
-    overlap = set(train_loader.dataset.indices) & set(val_loader.dataset.indices)
+    overlap = set(train_loader.dataset.indices) & set(val_loader.dataset.indices)  # type: ignore
     print(f"  Index overlap : {len(overlap)} (must be 0)")
     assert len(overlap) == 0, "BUG: train/val index lists overlap!"
     print(f"{'='*60}\n")

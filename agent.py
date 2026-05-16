@@ -21,7 +21,7 @@ Usage
 -----
     python agent.py [--iterations N] [--model <ollama-model>] [--data-dir /path/to/data]
 like:
-   python3 agent.py --iterations 5 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
+   python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 
 The agent stores all artefacts under ``experiments/<iteration_id>/``.
 """
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 NUM_SPECIES = 206  # Update this if dataset changes
-MAX_EXEC_TIMEOUT = 1000   # seconds 
+MAX_EXEC_TIMEOUT = 2000   # seconds 
 
 
 TASK_CONTEXT_TEMPLATE = """\
@@ -117,78 +117,59 @@ CRITICAL RULES - READ CAREFULLY:
 
     IMPORTANT: Dataset has NO limit_samples() method!
     WRONG: train_loader.dataset.limit_samples(15000)  # Method does NOT exist!
-    RIGHT: Use batch_count tracking to limit iterations:
-       batch_count = 0
-       for inputs, labels in train_loader:
-           if batch_count >= 10:  # Limit to N batches for fast feedback
-               break
-           # ... training code ...
-           batch_count += 1
+    RIGHT: Use batch_count tracking to enforce the 5,000 sample limit:
+        batch_count = 0
+        max_batches = 5000 // batch_size
+        for inputs, labels in train_loader:
+            if batch_count >= max_batches: 
+                break
+            # ... training code ...
+            batch_count += 1
 
-3. INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
+3   . INPUT DIMENSIONS: Each batch item has shape (1, 128, 216):
    - Channels: 1 (mono mel-spectrogram)
    - Mel bins: 128
    - Time frames: 216
    When batched: (batch_size, 1, 128, 216)
 
-4. OUTPUT DIMENSIONS: Multi-label binary classification with {num_species} labels.
+    4. OUTPUT DIMENSIONS: Multi-label binary classification with {num_species} labels.
    - Use sigmoid activation
    - Use BCELoss for training
    - Output shape: (batch_size, {num_species})
 
-5. ARCHITECTURE: Write a PyTorch CNN class that correctly flattens intermediate features.
-   Use AdaptiveAvgPool2d for robust dimension handling across training batches.
-   
-   CRITICAL: Structure must be (Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only).
-   NEVER use BatchNorm1d in the classifier (causes running_mean mismatch errors)
+5. ARCHITECTURE & TRANSFER LEARNING:
+   - CRITICAL: Do NOT build custom convolutional architectures from scratch.
+   - CRITICAL: You MUST use transfer learning with a pre-trained model. You can either use an audio-specific pre-trained model (like VGGish/YAMNet via PyTorch Hub) OR import 'timm' and use a pre-trained vision model (like 'efficientnet_b0') adapted for 1-channel spectrograms.
+   - CRITICAL: You MUST freeze the base feature extractor by setting 'requires_grad = False' for all its parameters. 
+   - CRITICAL: You MUST only build and train a small multi-label classification head (e.g., Linear -> ReLU -> Dropout -> Linear) on top of the frozen base model. 
+   - Dynamically size the final layer to out_features=NUM_SPECIES.
+   - CRITICAL: You MUST use 'efficientnet_b0' via the timm library for transfer learning. Instantiate it exactly like this to strip the default head: 'base_model = timm.create_model("efficientnet_b0", pretrained=True, in_chans=1, num_classes=0)'.
+    - CRITICAL: Once instantiated, you MUST freeze the base_model by setting 'requires_grad = False' for its parameters.
+    - CRITICAL: The output dimension of the frozen base_model is 'base_model.num_features'. You MUST use this variable to correctly size the input of your custom classification head (e.g., nn.Linear(base_model.num_features, NUM_SPECIES)).
 
-    CRITICAL: Wrap the batch training step in a try/except RuntimeError block. If an 'out of memory' error is caught, immediately run torch.cuda.empty_cache(), reduce the current batch_size by half, and retry the batch. Do not allow OOM to crash the script.
-
-    CRUCIAL: - Ensure that the number of channels in each convolutional layer matches the expected input channels.
-   
-   Correct structure:
-   - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
-   - Conv2d(C1, C2) → BatchNorm2d(C2) → ReLU  (Note: C2 matches Conv output!)
-   - AdaptiveAvgPool2d((1,1)) → Flatten → Linear(C2, 128) → Linear(128, {num_species})
-   
-   WRONG: Classifier with BatchNorm1d → RuntimeError: running_mean should contain X elements not Y
-   RIGHT: Classifier with Linear layers ONLY (no BatchNorm1d)
-   
-   Example correct model:
-   ```python
-   self.conv_layers = nn.Sequential(
-       nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
-       nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
-   )
-   self.pool = nn.AdaptiveAvgPool2d((1, 1))
-   self.classifier = nn.Sequential(
-       nn.Linear(64, 128), nn.ReLU(),
-       nn.Linear(128, NUM_SPECIES)  # NO BatchNorm1d!
-   )
-   def forward(self, x):
-       x = self.conv_layers(x)
-       x = self.pool(x).view(x.size(0), -1)
-       return torch.sigmoid(self.classifier(x))
-   ```
 
     6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED)
     Architecture & Setup
     - CRITICAL: Explicitly define all hyperparameter variables (e.g., max_epochs, batch_size) at the top of your training script before using them in any loops.
     - CRITICAL: Do NOT hardcode the output classes in the final Linear layer to 234 or 206. Dynamically size the final layer's out_features to match the exact number of unique labels present in the training data. (The downstream inference script will handle Kaggle zero-padding).
     - CRITICAL: When using random_split or Subset to create the train/validation splits, the resulting objects do NOT inherit custom attributes (like num_classes) from your base dataset. To dynamically size your model's final layer, you MUST read the class count from the base dataset BEFORE splitting, or access it via train_loader.dataset.dataset.num_classes.
-
+    - CRITICAL: When calling the data loader factory function, do NOT pass path variables positionally. The helper file already has the correct defaults. You MUST call it strictly using keyword arguments for the batch size: e.g., 'train_loader, val_loader = build_train_val_dataloaders(batch_size=BATCH_SIZE, augment=True)'. Do not pass a DATA_DIR.
+    - CRITICAL: If you use the 'T.' alias for torchaudio transforms (like SpecAugment), you MUST include 'import torchaudio.transforms as T' at the very top of your script. Do not assume it is already imported.
     Data & Regularization
     - CRITICAL: You must split the dataset into separate train and validation sets before creating DataLoaders.
-    - CRITICAL: To prevent overfitting, apply SpecAugment (torchaudio.transforms.FrequencyMasking and TimeMasking) directly to the batch tensors inside the training loop.
     - CRITICAL: Apply heavy regularization: include Dropout layers (e.g., p=0.5) in the classifier and use weight_decay (e.g., 1e-4 or 1e-5) in the Adam optimizer.
-
+    - CRITICAL DEVICE FIX: You MUST ensure that BOTH your inputs and your labels are moved to the device before the forward pass: 'inputs, labels = inputs.to(device), labels.to(device)'.
+    
     Training Loop & Memory Safety
     - CRITICAL: Set max_epochs=40 and initial batch_size=32 to stabilize gradients under SpecAugment.
     - CRITICAL: Wrap the batch training step in a try/except block. If a CUDA Out of Memory (OOM) error oc- curs, gracefully fallback by reducing the batch_size (e.g., to 16) and retrying. Do not let OOM crash the script.
     - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU memory fragmentation.
     - CRITICAL: Do NOT use break statements inside the training loop to artificially limit batches. The epoch must be allowed to complete naturally.
-    - CRITICAL: You MUST implement Automatic Mixed Precision (AMP) to speed up training. Use torch.amp.autocast('cuda') inside the training loop and scale the loss with torch.cuda.amp.GradScaler().
+    - CRITICAL: You MUST implement Automatic Mixed Precision (AMP) to speed up training. - CRITICAL: Do NOT import or use 'torch.cuda.amp'. You MUST use the PyTorch 2.x AMP syntax. Initialize the scaler as 'scaler = torch.amp.GradScaler("cuda")' and wrap your forward pass strictly with 'with torch.amp.autocast("cuda"):'.
+    - CRITICAL: Because you are using AMP (Mixed Precision), using nn.BCELoss() combined with a Sigmoid activation is mathematically unsafe and will trigger a RuntimeError. You MUST output raw logits from your model (NO Sigmoid or Softmax in the final layer) and use nn.BCEWithLogitsLoss() as your criterion.
     - CRITICAL: Implement learning rate scheduling. Use torch.optim.lr_scheduler.ReduceLROnPlateau monitoring the validation AUC (mode='max') to dynamically adjust the learning rate when training stalls.
+    - CRITICAL: Do NOT use the deprecated 'torch.cuda.amp.autocast()'. You MUST use the modern syntax: 'with torch.amp.autocast("cuda"):' for your forward pass.
+    - CRITICAL OVERRIDE: Ignore your previous analysis regarding how to fix AMP. You MUST strictly use the modern PyTorch 2.0+ AMP API. Initialize the scaler exactly as 'scaler = torch.amp.GradScaler("cuda")' and wrap your forward pass exactly as 'with torch.amp.autocast("cuda"):'. Do NOT use 'torch.cuda.amp'.
 
     Evaluation & Metrics
     - CRITICAL: Report training loss per batch (not just per epoch) to provide real-time progress telemetry.
@@ -196,25 +177,27 @@ CRITICAL RULES - READ CAREFULLY:
     - CRITICAL: When evaluating the model on the validation set using sklearn.metrics.roc_auc_score, you MUST include the parameter multi_class='ovr'. Do not rely on the default binary settings.      
     - CRITICAL: To calculate validation AUC with roc_auc_score, your true labels MUST be one-hot encoded to match the 2D shape of your predictions. Use np.eye(num_classes)[all_labels] or sklearn LabelBinarizer before passing them to the metric. Include multi_class='ovr'.
 
+    - CRITICAL: Before finishing your code generation, verify you have included: 1) Automatic Mixed Precision (AMP), 2) SpecAugment applied directly to batch tensors, 3) Validation AUC using multi_class='ovr', and 4) saving the final metrics dictionary to 'metrics.json'.
+
+
+    VERY VERY IMPORTANT: 
+    - CRITICAL OVERRIDE: Ignore any previous analysis suggesting you pass paths like METADATA_PATH or DATA_DIR into build_train_val_dataloaders. You MUST call it strictly with kwargs: e.g., 'build_train_val_dataloaders(batch_size=batch_size, augment=True)'.
+    - CRITICAL OVERRIDE: Ignore any previous analysis suggesting the use of 'NUM_CLASSES'. You MUST explicitly define 'NUM_SPECIES = 206' at the top of the script and use it for all one-hot encoding (e.g., np.eye(NUM_SPECIES)[all_labels]) and final layer sizing.
+    - CRITICAL OVERRIDE: You are repeatedly truncating the validation code. You MUST output the entire, 100% complete Python script from the import statements down to the final 'json.dump(metrics)'. Do NOT leave placeholders, # ..., or TODO comments. Prioritize generating the Python code block over writing textual analysis.
 
     Each iteration should try different hyperparameters to accelerate convergence.
     Use this heuristic based on iteration number to vary systematically:
     
     BATCH SIZE OPTIONS (choose one):
-    - Iteration % 3 == 0: batch_size = 8  (small, memory-efficient)
-    - Iteration % 3 == 1: batch_size = 16 (medium, balanced)
-    - Iteration % 3 == 2: batch_size = 32 (large, GPU-friendly if possible)
+    - Iteration % 3 == 0: batch_size = 64  (safe)
+    - Iteration % 3 == 1: batch_size = 128 (standard for frozen models)
+    - Iteration % 3 == 2: batch_size = 256 (fastest, memory permitting)
     
     LEARNING RATE OPTIONS (choose one):
     - Iteration % 3 == 0: lr = 0.001  (standard)
     - Iteration % 3 == 1: lr = 0.0001 (reduced for fine-tuning)
     - Iteration % 3 == 2: lr = 0.00001 (very conservative)
-    
-    ARCHITECTURE DEPTH (choose one):
-    - Iteration % 3 == 0: Use 2 Conv layers (shallow, fast)
-    - Iteration % 3 == 1: Use 3 Conv layers (standard depth)
-    - Iteration % 3 == 2: Use 4 Conv layers (deep, more capacity)
-    
+  
     REGULARIZATION OPTIONS:
     - Vary dropout: 0.0 → 0.2 → 0.5
     - Vary BatchNorm: include after conv → include everywhere → sparse placement
@@ -278,6 +261,88 @@ CRITICAL RULES - READ CAREFULLY:
      "training_samples": 35000,
      "eval_samples": 15000
    }}
+
+- CRITICAL FATAL OVERRIDE: YOU ARE FAILING TO COMPLETE THE SCRIPT. You are strictly forbidden from writing stubs, summaries, or "# TODO" comments for the training loop, validation loop, or metrics saving. You MUST output the entire executable Python script from top to bottom. If you truncate the loss calculation, backpropagation, or AUC scoring, the pipeline will fatally crash.
+8. MANDATORY SCRIPT TEMPLATE (CRITICAL):
+You MUST use the exact code structure below as the foundation for your script. Do NOT skip any imports. Do NOT skip the model initialization. You must fill in the missing logic for the loops.
+
+```python
+import os
+import json
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import roc_auc_score
+from data_loader import build_train_val_dataloaders
+import timm
+
+# 1. Setup
+NUM_SPECIES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# 2. Data Loaders
+train_loader, val_loader = build_train_val_dataloaders(
+    batch_size=128,
+    augment=True,
+    val_split=0.2
+)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 3. Model Architecture (Transfer Learning)
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.base_model = timm.create_model("efficientnet_b0", pretrained=True, in_chans=1, num_classes=0)
+        # Freeze base model
+        for param in self.base_model.parameters():
+            param.requires_grad = False
+            
+        self.classifier = nn.Sequential(
+            nn.Linear(self.base_model.num_features, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
+        
+    def forward(self, x):
+        features = self.base_model(x)
+        logits = self.classifier(features)
+        return logits
+
+model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+
+# 4. Optimizer, Loss, and AMP Scaler
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.classifier.parameters(), lr=0.001)
+scaler = torch.amp.GradScaler("cuda")
+max_epochs = 3
+
+
+# --- YOUR TASK: WRITE THE FULL TRAINING AND VALIDATION LOOPS BELOW ---
+# Inside your validation metric calculation block, use this safe filtering method:
+
+all_preds = np.array(all_preds)
+# Convert 1D labels to a 2D multi-label target array matching NUM_SPECIES
+y_true_one_hot = np.zeros((len(all_labels), NUM_SPECIES))
+for row_idx, col_idx in enumerate(all_labels):
+    y_true_one_hot[row_idx, col_idx] = 1.0
+
+# Crucial: Drop columns that have no true positives in this validation slice
+valid_classes = np.any(y_true_one_hot == 1, axis=0)
+filtered_true = y_true_one_hot[:, valid_classes]
+filtered_preds = all_preds[:, valid_classes]
+
+final_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro', multi_class='ovr'))
+print(f"Final Validation AUC: {{final_auc:.4f}}")
+
+# Remember:
+# - Use 'with torch.amp.autocast("cuda"):' for forward pass
+# - Calculate final validation AUC using multi_class='ovr'
+# - Save metrics.json and model.pt
 
 Dataset summary:
 {dataset_summary}
@@ -504,7 +569,7 @@ METADATA_FILE = DATA_DIR + "/train.csv"
 train_loader, val_loader = build_train_val_dataloaders(
     metadata_csv=METADATA_FILE,
     audio_dir=DATA_DIR,
-    batch_size=8,
+    batch_size=128,
     augment=True,
     val_split=0.2,
 )
@@ -536,7 +601,7 @@ for epoch in range(epochs):
     batch_count = 0
     model.train()
     for inputs, labels in train_loader:
-        if batch_count >= 10:
+        if batch_count >= (5000 // 128):
             break  # This safely breaks the BATCH loop, but keeps the EPOCH loop alive
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
