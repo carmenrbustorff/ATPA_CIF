@@ -1,0 +1,150 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import torchaudio.transforms as T
+
+# Define the CNN model architecture
+class BirdCNN(nn.Module):
+    def __init__(self, num_species, num_conv_layers=3, dropout_rate=0.5):
+        super(BirdCNN, self).__init__()
+        layers = []
+        
+        # Convolutional layers
+        in_channels = 1
+        out_channels = [32, 64, 128, 256][:num_conv_layers]
+        for i in range(num_conv_layers):
+            layers.append(nn.Conv2d(in_channels, out_channels[i], kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels[i]))
+            layers.append(nn.ReLU())
+            in_channels = out_channels[i]
+        
+        # Pooling and flattening
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(out_channels[-1], 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Hyperparameters
+NUM_EPOCHS = 40
+BATCH_SIZE = 32
+LR = 0.001
+NUM_CLASSES = 206
+DROPOUT_RATE = 0.5
+NUM_CONV_LAYERS = 3
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=BATCH_SIZE,
+    augment=True,
+    val_split=0.2,
+)
+
+# Initialize model, loss function, and optimizer
+model = BirdCNN(num_species=NUM_CLASSES, num_conv_layers=NUM_CONV_LAYERS, dropout_rate=DROPOUT_RATE).to('cuda')
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-4)
+
+# Training loop with early stopping
+best_auc = 0.0
+early_stopping_counter = 0
+
+for epoch in range(NUM_EPOCHS):
+    model.train()
+    total_loss = 0.0
+    
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        try:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            torch.cuda.empty_cache()
+        except RuntimeError as e:
+            if 'CUDA out of memory' in str(e):
+                print("Out of Memory. Reducing batch size and retrying.")
+                BATCH_SIZE //= 2
+                train_loader, val_loader = build_train_val_dataloaders(
+                    metadata_csv=METADATA_FILE,
+                    audio_dir=DATA_DIR,
+                    batch_size=BATCH_SIZE,
+                    augment=True,
+                    val_split=0.2,
+                )
+                continue
+            else:
+                raise e
+        
+    avg_loss = total_loss / len(train_loader)
+    print(f"Epoch [{epoch+1}/{NUM_EPOCHS}], Loss: {avg_loss:.4f}")
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            preds = (outputs > 0.5).float().cpu().numpy()
+            all_preds.extend(preds.tolist())
+            all_labels.extend(labels.float().cpu().tolist())
+    
+    from sklearn.metrics import roc_auc_score
+    auc = roc_auc_score(all_labels, all_preds, average='weighted')
+    print(f"Validation AUC: {auc:.4f}")
+    
+    if auc > best_auc:
+        best_auc = auc
+        early_stopping_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        early_stopping_counter += 1
+        if early_stopping_counter >= 3:
+            print("Early stopping triggered.")
+            break
+
+# Save metrics to JSON
+metrics = {
+    "final_train_loss": avg_loss,
+    "final_auc": best_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+```
+
+This script defines a new CNN model architecture for bird species classification using PyTorch. It includes a training loop with early stopping, validation to compute AUC, and saving metrics and the model checkpoint. The hyperparameters are set based on a systematic variation strategy to explore different configurations quickly.

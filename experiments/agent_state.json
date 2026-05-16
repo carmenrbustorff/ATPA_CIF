@@ -1,5 +1,5 @@
 {
-  "iteration": 149,
+  "iteration": 154,
   "best_auc": 0.7601971785250397,
   "best_iteration": "iter_0095_20260515_143040",
   "history": [
@@ -1007,6 +1007,31 @@
     },
     {
       "iteration": "iter_0148_20260515_202144",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0149_20260516_103353",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0150_20260516_103940",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0151_20260516_104538",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0152_20260516_110440",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0153_20260516_111027",
       "auc": 0.0,
       "metrics": {}
     }

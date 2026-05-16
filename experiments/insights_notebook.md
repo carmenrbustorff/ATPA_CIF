@@ -29,3 +29,8 @@ Iteration 95: new max AUC: 0.76!  Script completed in 469.9 s., took 10 minutes 
 Added data augmentation to data loader and to agent task so it is able to perform it
 Model is severly overfitting, increase sample size to 35,000 for training and 15,000 for evaluation, epochs to 20
 After including data augmentation to the pipeline the model repeatedly hit issues related to file corruption, unsupported formats, or missing files.
+Issues presist after fixing data loader: file handling and auc scoring are the main faults
+iteration 152: the agent is now hallucinating some non real issues (related to training time)
+
+DRAMA: From Iteration 96 onward, almost every run shows auc: 0.0 and metrics: {}.
+This means the PyTorch script train.py crashed before it even reached the end of the script to save the dictionary.

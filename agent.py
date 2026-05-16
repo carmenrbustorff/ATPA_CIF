@@ -81,6 +81,7 @@ CRITICAL RULES - READ CAREFULLY:
    from data_loader import build_train_val_dataloaders
    import json
    from tqdm import tqdm
+   import soundfile as sf
 
 
 - CRITICAL: Missing Imports Fix. If you use the 'T.' alias for transforms (e.g., SpecAugment), you MUST explicitly include 'import torchaudio.transforms as T' at the top of the script.
@@ -103,8 +104,8 @@ CRITICAL RULES - READ CAREFULLY:
     - ALWAYS use augment=True for training, augment=False for validation (handled automatically by build_train_val_dataloaders).
     - If you use build_dataloader directly, set augment=True for training and augment=False for validation.
     - Do NOT use get_dataloader; use build_train_val_dataloaders for all new code.
-    - CRITICAL: The full dataset contains naturally corrupted .ogg files. You MUST wrap your audio loading function (e.g., torchaudio.load or librosa.load) inside a try/except block within the __getitem__ method of your Dataset class. If a file fails to load, catch the exception, print a small warning, and recursively load a random different index (e.g., return self.__getitem__(random.randint(0, len(self) - 1))). NEVER return None.
     - CRITICAL: DataLoader Performance. You MUST set 'num_workers=4' (or 8) and 'pin_memory=True' in your DataLoader to prevent CPU bottlenecking.
+    - CRITICAL: torchaudio.load() cannot read .ogg files on this OS and will throw a System error. You MUST use the soundfile library instead. Use 'import soundfile as sf', read the file with 'waveform, sr = sf.read(filepath)', and manually convert it to a tensor using 'waveform = torch.from_numpy(waveform).float()'.
 
 
     
@@ -143,7 +144,7 @@ CRITICAL RULES - READ CAREFULLY:
 
     CRITICAL: Wrap the batch training step in a try/except RuntimeError block. If an 'out of memory' error is caught, immediately run torch.cuda.empty_cache(), reduce the current batch_size by half, and retry the batch. Do not allow OOM to crash the script.
 
-   CRUCIAL: - Ensure that the number of channels in each convolutional layer matches the expected input channels.
+    CRUCIAL: - Ensure that the number of channels in each convolutional layer matches the expected input channels.
    
    Correct structure:
    - Conv2d(1, C1) → BatchNorm2d(C1) → ReLU
@@ -170,27 +171,30 @@ CRITICAL RULES - READ CAREFULLY:
        return torch.sigmoid(self.classifier(x))
    ```
 
-6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED):
-    - Use 20 epochs maximum for quick iteration
-    - Report loss per batch, not per epoch (shows progress)
-    - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU fragmentation
-    - Memory safety: If you get OOM, reduce batch_size and try again
-    - Do NOT train the full dataset (saves time and memory)
-    - CRITICAL: Do NOT use break statements inside the training epoch loop to limit batches. The loop must be allowed to complete naturally.
-    - CRITICAL: Use aggressive Dropout (e.g., 0.5) in the fully connected layers to prevent overfitting.
-    - CRITICAL: You must explicitly define all hyperparameter variables (e.g., epochs , batch_size ) at the top of your training script before using them in any loops.
-    - CRITICAL: Do NOT hardcode the number of output classes in the final Linear layer. You must use the provided num_species variable (which is currently 206) to define the final out_features of the model.
-    - CRITICAL: You must evaluate the final AUC on a separate validation set (e.g., using val_loader), NEVER the train_loader. You must split the dataset into train and validation sets before creating the DataLoaders.
-    - CRITICAL: Do not hardcode the model's output layer to 234 if the training dataset contains fewer classes. Dynamically size the final layer to match the exact number of unique labels present in the training data (e.g., 206). The downstream inference script handles necessary zero-padding for Kaggle submission.
-    - CRITICAL: To prevent overfitting, you MUST implement audio-specific data augmentation in the training loop. Use torchaudio.transforms.FrequencyMasking and torchaudio.transforms.TimeMasking before passing the inputs to the model.
-    - CRITICAL: The model is severely overfitting. You MUST use heavy regularization. Include Dropout layers (e.g., p=0.5) in the classifier and use weight_decay (e.g., 1e-4 or 1e-5) in the Adam optimizer.
-    - CRITICAL: Set the batch_size to 32 to stabilize gradients under SpecAugment. If you hit a CUDA Out of Memory error, gracefully fallback to 16.
-    - CRITICAL: Set max_epochs to 40. However, you MUST implement an Early Stopping callback. Monitor the validation AUC and stop training if it does not improve for 5 consecutive epochs to save GPU time.
-    - You must implement Early Stopping: stop training if validation AUC does not improve for 5 consecutive epochs
-    - You must split the dataset into train and validation sets before creating DataLoaders. Always evaluate AUC on the validation set, not the training set.
-    - CRITICAL: When calculating validation AUC with sklearn.metrics.roc_auc_score for multi-class datasets, you MUST include the parameter multi_class='ovr'. Do not rely on the default binary settings.
-        
+    6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED)
+    Architecture & Setup
+    - CRITICAL: Explicitly define all hyperparameter variables (e.g., max_epochs, batch_size) at the top of your training script before using them in any loops.
+    - CRITICAL: Do NOT hardcode the output classes in the final Linear layer to 234 or 206. Dynamically size the final layer's out_features to match the exact number of unique labels present in the training data. (The downstream inference script will handle Kaggle zero-padding).
+    - CRITICAL: When using random_split or Subset to create the train/validation splits, the resulting objects do NOT inherit custom attributes (like num_classes) from your base dataset. To dynamically size your model's final layer, you MUST read the class count from the base dataset BEFORE splitting, or access it via train_loader.dataset.dataset.num_classes.
 
+    Data & Regularization
+    - CRITICAL: You must split the dataset into separate train and validation sets before creating DataLoaders.
+    - CRITICAL: To prevent overfitting, apply SpecAugment (torchaudio.transforms.FrequencyMasking and TimeMasking) directly to the batch tensors inside the training loop.
+    - CRITICAL: Apply heavy regularization: include Dropout layers (e.g., p=0.5) in the classifier and use weight_decay (e.g., 1e-4 or 1e-5) in the Adam optimizer.
+
+    Training Loop & Memory Safety
+    - CRITICAL: Set max_epochs=40 and initial batch_size=32 to stabilize gradients under SpecAugment.
+    - CRITICAL: Wrap the batch training step in a try/except block. If a CUDA Out of Memory (OOM) error oc- curs, gracefully fallback by reducing the batch_size (e.g., to 16) and retrying. Do not let OOM crash the script.
+    - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU memory fragmentation.
+    - CRITICAL: Do NOT use break statements inside the training loop to artificially limit batches. The epoch must be allowed to complete naturally.
+    - CRITICAL: You MUST implement Automatic Mixed Precision (AMP) to speed up training. Use torch.amp.autocast('cuda') inside the training loop and scale the loss with torch.cuda.amp.GradScaler().
+    - CRITICAL: Implement learning rate scheduling. Use torch.optim.lr_scheduler.ReduceLROnPlateau monitoring the validation AUC (mode='max') to dynamically adjust the learning rate when training stalls.
+
+    Evaluation & Metrics
+    - CRITICAL: Report training loss per batch (not just per epoch) to provide real-time progress telemetry.
+    - CRITICAL: Implement Early Stopping: automatically stop training if the validation AUC does not improve for 5 consecutive epochs to save GPU time.
+    - CRITICAL: When evaluating the model on the validation set using sklearn.metrics.roc_auc_score, you MUST include the parameter multi_class='ovr'. Do not rely on the default binary settings.      
+    - CRITICAL: To calculate validation AUC with roc_auc_score, your true labels MUST be one-hot encoded to match the 2D shape of your predictions. Use np.eye(num_classes)[all_labels] or sklearn LabelBinarizer before passing them to the metric. Include multi_class='ovr'.
 
 
     Each iteration should try different hyperparameters to accelerate convergence.

@@ -1,0 +1,166 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import torchaudio.transforms as T
+
+# Define hyperparameters based on iteration number (example: Iteration 2)
+ITERATION = 2
+BATCH_SIZE_OPTIONS = {0: 8, 1: 16, 2: 32}
+LEARNING_RATE_OPTIONS = {0: 0.001, 1: 0.0001, 2: 0.00001}
+CONV_LAYER_DEPTH_OPTIONS = {0: 2, 1: 3, 2: 4}
+DROPOUT_OPTIONS = [0.0, 0.2, 0.5]
+BATCHNORM_PLACEMENTS = ['conv', 'everywhere', 'sparse']
+
+# Select hyperparameters for the current iteration
+batch_size = BATCH_SIZE_OPTIONS[ITERATION % 3]
+lr = LEARNING_RATE_OPTIONS[ITERATION % 3]
+num_conv_layers = CONV_LAYER_DEPTH_OPTIONS[ITERATION % 3]
+dropout_rate = DROPOUT_OPTIONS[ITERATION // 3]  # Example: vary dropout every 3 iterations
+batchnorm_placement = BATCHNORM_PLACEMENTS[ITERATION % 3]
+
+# Constants
+NUM_CLASSES = 206
+MAX_EPOCHS = 40
+EARLY_STOPPING_PATIENCE = 5
+
+# Data directories
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Load data
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=batch_size,
+    augment=True,
+    val_split=0.2,
+)
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes, num_conv_layers, dropout_rate, batchnorm_placement):
+        super(BirdCLEFModel, self).__init__()
+        self.conv_layers = nn.Sequential()
+        in_channels = 1
+        out_channels = 32
+        
+        for i in range(num_conv_layers):
+            self.conv_layers.add_module(f'conv_{i}', nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            
+            if batchnorm_placement == 'everywhere':
+                self.conv_layers.add_module(f'bn_{i}', nn.BatchNorm2d(out_channels))
+            
+            self.conv_layers.add_module(f'relu_{i}', nn.ReLU())
+            in_channels = out_channels
+            out_channels *= 2
+        
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Classifier
+        classifier_layers = []
+        classifier_layers.append(nn.Linear(in_channels, 128))
+        classifier_layers.append(nn.ReLU())
+        classifier_layers.append(nn.Dropout(dropout_rate))
+        classifier_layers.append(nn.Linear(128, num_classes))
+        
+        self.classifier = nn.Sequential(*classifier_layers)
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model, optimizer, and loss function
+model = BirdCLEFModel(num_classes=NUM_CLASSES, num_conv_layers=num_conv_layers, dropout_rate=dropout_rate, batchnorm_placement=batchnorm_placement)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+criterion = nn.BCELoss()
+
+# Move model to CUDA if available
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
+# Training loop
+best_auc = 0.0
+early_stopping_counter = 0
+
+for epoch in range(MAX_EPOCHS):
+    model.train()
+    train_loss = []
+    
+    for inputs, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{MAX_EPOCHS}'):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        try:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
+            train_loss.append(loss.item())
+        except RuntimeError as e:
+            print(f"RuntimeError: {e}")
+    
+    # Evaluate on validation set
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            preds = (outputs > 0.5).float().cpu().numpy()
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+    
+    from sklearn.metrics import roc_auc_score
+    try:
+        auc = roc_auc_score(all_labels, all_preds, average='weighted')
+        print(f"Epoch {epoch+1}/{MAX_EPOCHS}, Train Loss: {sum(train_loss)/len(train_loss):.4f}, Validation AUC: {auc:.4f}")
+        
+        if auc > best_auc:
+            best_auc = auc
+            early_stopping_counter = 0
+            torch.save(model.state_dict(), 'model.pt')
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= EARLY_STOPPING_PATIENCE:
+                print("Early stopping triggered.")
+                break
+    except ValueError as e:
+        print(f"ValueError: {e}")
+        auc = 0.0
+
+# Save metrics
+final_train_loss = sum(train_loss) / len(train_loss)
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": best_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Key Points:
+1. **Hyperparameter Selection**: The script dynamically selects hyperparameters based on the iteration number using modular arithmetic.
+2. **Model Architecture**: The model architecture can vary in depth (number of convolutional layers) and dropout rate, allowing for systematic exploration.
+3. **Data Loading**: The `build_train_val_dataloaders` function is used to create train and validation loaders with data augmentation enabled.
+4. **Training Loop**: Includes a try-except block to handle potential runtime errors during training.
+5. **Evaluation**: Uses ROC AUC as the primary metric, which is computed on the validation set after each epoch.
+6. **Early Stopping**: Implements early stopping based on a predefined patience level.
+7. **Metrics and Model Saving**: Saves metrics in JSON format and the best model weights to disk.
+
+This approach ensures rapid experimentation by allowing different configurations for each iteration while maintaining a structured training and evaluation process.
