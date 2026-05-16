@@ -498,8 +498,8 @@ def build_train_val_dataloaders(
     val_idx   = [eligible_idx[i] for i in val_local]
 
     # --- NEURAL SCALING CAPPER ---
-    MAX_TRAIN = 5000
-    MAX_VAL = 1000
+    MAX_TRAIN = 15000
+    MAX_VAL = 3000
 
     if len(train_idx) > MAX_TRAIN:
         train_idx = random.sample(train_idx, MAX_TRAIN)
