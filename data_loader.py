@@ -73,9 +73,15 @@ TOP_DB = 80.0
 # Derived time dimension: ceil(CLIP_SAMPLES / HOP_LENGTH) = 313
 TIME_FRAMES = (CLIP_SAMPLES // HOP_LENGTH) + 1  # 313
 
-# DataLoader workers: leave 1 CPU free for the training loop
-MAX_WORKERS = 3
+# DataLoader workers: leave 1 CPU free for the training loop.
+# Cap at 4 — more workers rarely helps with torchaudio and increases
+# shared-memory pressure on large datasets.
+MAX_WORKERS = 4
 NUM_WORKERS = min(MAX_WORKERS, max(1, os.cpu_count() - 1))  # type: ignore[arg-type]
+
+# Use "fork" on Linux for torchaudio compatibility.
+# Falls back to the default on non-Linux platforms.
+MP_CONTEXT = "fork" if sys.platform == "linux" else None
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +183,11 @@ class BirdCLEFDataset(Dataset):
         self._time_masking = T.TimeMasking(time_mask_param=40)
         self._freq_masking = T.FrequencyMasking(freq_mask_param=15)
 
+        # Cache for Resample transforms keyed by original sample rate.
+        # Avoids creating a new object on every __getitem__ call for files
+        # that are not already at the target rate.
+        self._resamplers: dict[int, T.Resample] = {}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -201,7 +212,11 @@ class BirdCLEFDataset(Dataset):
 
         # Resample if the file is not already at the target rate
         if orig_sr != self.sample_rate:
-            waveform = T.Resample(orig_freq=orig_sr, new_freq=self.sample_rate)(waveform)
+            if orig_sr not in self._resamplers:
+                self._resamplers[orig_sr] = T.Resample(
+                    orig_freq=orig_sr, new_freq=self.sample_rate
+                )
+            waveform = self._resamplers[orig_sr](waveform)
 
         total_samples = waveform.shape[-1]
 
@@ -320,6 +335,7 @@ def build_dataloader(
         pin_memory=pin_memory,
         persistent_workers=(num_workers > 0),
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        multiprocessing_context=MP_CONTEXT if num_workers > 0 else None,
         drop_last=False,
     )
 
@@ -483,6 +499,7 @@ def build_train_val_dataloaders(
         pin_memory=pin_memory,
         persistent_workers=(num_workers > 0),
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        multiprocessing_context=MP_CONTEXT if num_workers > 0 else None,
         drop_last=False,
     )
     train_loader = DataLoader(
