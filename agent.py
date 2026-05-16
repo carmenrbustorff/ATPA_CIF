@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 NUM_SPECIES = 206  # Update this if dataset changes
-MAX_EXEC_TIMEOUT = 3600   # seconds 
+MAX_EXEC_TIMEOUT = 10800   # seconds 
 
 
 TASK_CONTEXT_TEMPLATE = """\
@@ -96,7 +96,7 @@ CRITICAL RULES - READ CAREFULLY:
     train_loader, val_loader = build_train_val_dataloaders(
         metadata_csv=METADATA_FILE,
         audio_dir=DATA_DIR,
-        batch_size=32,
+        batch_size=128,
         augment=True,      # Enable augmentation for training
         val_split=0.2,     # 80/20 split
     )
@@ -163,7 +163,7 @@ CRITICAL RULES - READ CAREFULLY:
     - CRITICAL DEVICE FIX: You MUST ensure that BOTH your inputs and your labels are moved to the device before the forward pass: 'inputs, labels = inputs.to(device), labels.to(device)'.
     
     Training Loop & Memory Safety
-    - CRITICAL: Set max_epochs=40 and initial batch_size=32 to stabilize gradients under SpecAugment.
+    - CRITICAL: Set max_epochs=20 and initial batch_size=32 to stabilize gradients under SpecAugment.
     - CRITICAL: Wrap the batch training step in a try/except block. If a CUDA Out of Memory (OOM) error oc- curs, gracefully fallback by reducing the batch_size (e.g., to 16) and retrying. Do not let OOM crash the script.
     - CRITICAL: Include torch.cuda.empty_cache() AFTER EACH BATCH to prevent GPU memory fragmentation.
     - CRITICAL: Do NOT use break statements inside the training loop to artificially limit batches. The epoch must be allowed to complete naturally.
@@ -176,10 +176,9 @@ CRITICAL RULES - READ CAREFULLY:
     Evaluation & Metrics
     - CRITICAL: Report training loss per batch (not just per epoch) to provide real-time progress telemetry.
     - CRITICAL: Implement Early Stopping: automatically stop training if the validation AUC does not improve for 5 consecutive epochs to save GPU time.
-    - CRITICAL: When evaluating the model on the validation set using sklearn.metrics.roc_auc_score, you MUST include the parameter multi_class='ovr'. Do not rely on the default binary settings.      
-    - CRITICAL: To calculate validation AUC with roc_auc_score, your true labels MUST be one-hot encoded to match the 2D shape of your predictions. Use np.eye(num_classes)[all_labels] or sklearn LabelBinarizer before passing them to the metric. Include multi_class='ovr'.
+    - CRITICAL: To calculate validation AUC with roc_auc_score, your true labels MUST be one-hot encoded to match the 2D shape of your predictions. Use np.eye(num_classes)[all_labels] or sklearn LabelBinarizer before passing them to the metric.
 
-    - CRITICAL: Before finishing your code generation, verify you have included: 1) Automatic Mixed Precision (AMP), 2) SpecAugment applied directly to batch tensors, 3) Validation AUC using multi_class='ovr', and 4) saving the final metrics dictionary to 'metrics.json'.
+    - CRITICAL: Before finishing your code generation, verify you have included: 1) Automatic Mixed Precision (AMP), 2) SpecAugment applied directly to batch tensors, 3) Validation AUC, and 4) saving the final metrics dictionary to 'metrics.json'.
     - CRITICAL VALIDATION RULE: Never apply a threshold filter (like > 0.5) to your predictions before calculating the validation AUC. You MUST pass continuous sigmoid probabilities directly into the roc_auc_score function.
     
     - CRITICAL WORKSPACE CONSTRAINT: Do NOT invent or use functions like train_val_split() or class_weights_from_dataset(). You MUST strictly use the pre-built 'build_train_val_dataloaders(batch_size=batch_size, augment=True)' factory function imported from data_loader.py.
@@ -297,12 +296,14 @@ CRITICAL RULES - READ CAREFULLY:
     METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
     
     # 2. Data Loaders
+    batch_size = 128
     train_loader, val_loader = build_train_val_dataloaders(
-        batch_size=128,
+        batch_size=batch_size,
         augment=True,
-        val_split=0.2
+        val_split=0.2,
+        num_workers=4,
+        pin_memory=True
     )
-    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # 3. Model Architecture (Transfer Learning)
@@ -388,21 +389,23 @@ for epoch in range(max_epochs):
             all_preds.extend(preds)
             all_labels.extend(labels.cpu().numpy())
 
-    # --- METRIC CALCULATION SKELETON ---
+# --- METRIC CALCULATION SKELETON ---
     all_preds = np.array(all_preds)
-    y_true_one_hot = np.array(all_labels)
+    y_true_multi = np.array(all_labels) 
 
-    col_sums = np.sum(y_true_one_hot, axis=0)
-    valid_classes = (col_sums > 0) & (col_sums < len(y_true_one_hot))
+    # Ensure we only calculate AUC for columns containing both positives and negatives
+    col_sums = np.sum(y_true_multi, axis=0)
+    valid_classes = (col_sums > 0) & (col_sums < len(y_true_multi))
 
     if np.any(valid_classes):
-        filtered_true = y_true_one_hot[:, valid_classes]
+        filtered_true = y_true_multi[:, valid_classes]
         filtered_preds = all_preds[:, valid_classes]
 
         try:
-            current_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro', multi_class='ovr'))
-        except ValueError:
-            current_auc = 0.5000  
+            current_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro'))
+        except Exception as e:
+            print(f"AUC Calculation Error: {{e}}")  
+            current_auc = 0.5000
     else:
         current_auc = 0.5000
 
@@ -441,7 +444,6 @@ print("METRICS: ", json.dumps(metrics))
     #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     #     scaler.step(optimizer)
     #     scaler.update()
-    # - Calculate final validation AUC using macro-averaged multi_class='ovr'
     # - Save metrics.json and model.pt
 
 Dataset summary:
@@ -775,35 +777,51 @@ def execute_script(script_path: Path, timeout: int = MAX_EXEC_TIMEOUT) -> Dict:
     """
     logger.info("Step 4: Executing generated script (timeout=%ds)…", timeout)
     t0 = time.time()
+    stdout_output = ""
+    
     try:
         # Use .venv Python to ensure PyTorch and dependencies are available
         venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
-        proc = subprocess.run(
-            [str(venv_python), str(script_path)],
+        
+        # Use Popen with the "-u" flag to stream output live
+        proc = subprocess.Popen(
+            [str(venv_python), "-u", str(script_path)],
             cwd=str(script_path.parent),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # Merge stderr into stdout
             text=True,
-            timeout=timeout,
+            bufsize=1
         )
+        
+        # Read output line-by-line and print it to the live terminal
+        if proc.stdout:
+            for line in iter(proc.stdout.readline, ''):
+                print(line, end="") 
+                stdout_output += line
+            proc.stdout.close()
+            
+        returncode = proc.wait(timeout=timeout)
         duration = time.time() - t0
+        
         return {
-            "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
+            "returncode": returncode,
+            "stdout": stdout_output,
+            "stderr": "", 
             "timed_out": False,
             "duration_s": round(duration, 2),
         }
+        
     except subprocess.TimeoutExpired:
+        proc.kill()
         duration = time.time() - t0
         logger.warning("Script execution timed out after %.0f s.", duration)
         return {
             "returncode": -1,
-            "stdout": "",
+            "stdout": stdout_output,
             "stderr": "TimeoutExpired",
             "timed_out": True,
             "duration_s": round(duration, 2),
         }
-
 
 # ---------------------------------------------------------------------------
 # Step 5 – Results Capture
