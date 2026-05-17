@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "2026-05-17 14:48:26,288 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-17 14:48:28,094 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-17 14:48:28,106 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-17 14:48:28,141 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 15000  val: 3000  dropped: 4\n2026-05-17 14:48:28,142 | INFO     | data_loader | Train: 235 batches  |  Val: 47 batches  (batch_size=64)\n2026-05-17 14:48:28,267 | INFO     | timm.models._builder | Loading pretrained weights from Hugging Face hub (timm/efficientnet_b1.ra4_e3600_r240_in1k)\n2026-05-17 14:48:28,416 | INFO     | httpx | HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b1.ra4_e3600_r240_in1k/resolve/main/model.safetensors \"HTTP/1.1 302 Found\"\nWarning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n2026-05-17 14:48:28,416 | WARNING  | huggingface_hub.utils._http | Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n2026-05-17 14:48:28,428 | INFO     | timm.models._hub | [timm/efficientnet_b1.ra4_e3600_r240_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.\n2026-05-17 14:48:28,542 | INFO     | timm.models._builder | Converted input conv conv_stem pretrained weights from 3 to 1 channel(s)\n/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0191_20260517_144710/train.py:91: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.\n  scaler = torch.cuda.amp.GradScaler()\nEpoch 1/20, Train Loss: 0.0055, Val AUC: 0.5275\nEpoch 2/20, Train Loss: 0.0021, Val AUC: 0.5532\nEpoch 3/20, Train Loss: 0.0020, Val AUC: 0.5669\nEpoch 4/20, Train Loss: 0.0020, Val AUC: 0.6922\nEpoch 5/20, Train Loss: 0.0019, Val AUC: 0.7254\nEpoch 6/20, Train Loss: 0.0019, Val AUC: 0.7392\nEpoch 7/20, Train Loss: 0.0019, Val AUC: 0.7165\nEpoch 8/20, Train Loss: 0.0018, Val AUC: 0.7321\nEpoch 9/20, Train Loss: 0.0018, Val AUC: 0.7579\nEpoch 10/20, Train Loss: 0.0018, Val AUC: 0.7554\nEpoch 11/20, Train Loss: 0.0018, Val AUC: 0.7782\nEpoch 12/20, Train Loss: 0.0018, Val AUC: 0.7406\nEpoch 13/20, Train Loss: 0.0018, Val AUC: 0.7644\nEpoch 14/20, Train Loss: 0.0018, Val AUC: 0.7634\nEpoch 15/20, Train Loss: 0.0018, Val AUC: 0.7549\nEpoch 16/20, Train Loss: 0.0018, Val AUC: 0.8079\nEpoch 17/20, Train Loss: 0.0017, Val AUC: 0.8097\nEpoch 18/20, Train Loss: 0.0018, Val AUC: 0.8100\nEpoch 19/20, Train Loss: 0.0017, Val AUC: 0.8171\nEpoch 20/20, Train Loss: 0.0017, Val AUC: 0.8109\nMETRICS: {\"final_train_loss\": 0.0017195008085802831, \"final_auc\": 0.8170697807298132, \"num_params\": 7274158, \"epochs_trained\": 20, \"batch_size\": 64, \"training_samples\": 15000, \"eval_samples\": 3000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 6425.99,
+  "metrics": {
+    "final_train_loss": 0.0017195008085802831,
+    "final_auc": 0.8170697807298132,
+    "num_params": 7274158,
+    "epochs_trained": 20,
+    "batch_size": 64,
+    "training_samples": 15000,
+    "eval_samples": 3000
+  }
+}
