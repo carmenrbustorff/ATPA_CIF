@@ -1,7 +1,7 @@
 {
-  "iteration": 189,
-  "best_auc": 0.7601971785250397,
-  "best_iteration": "iter_0095_20260515_143040",
+  "iteration": 191,
+  "best_auc": 0.9329431525548301,
+  "best_iteration": "iter_0190_20260517_102847",
   "history": [
     {
       "iteration": "iter_0000_20260430_163003",
@@ -1289,13 +1289,31 @@
         "training_samples": 5000,
         "eval_samples": 1000
       }
+    },
+    {
+      "iteration": "iter_0189_20260517_102202",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0190_20260517_102847",
+      "auc": 0.9329431525548301,
+      "metrics": {
+        "final_train_loss": 0.06791148160788804,
+        "final_auc": 0.9329431525548301,
+        "num_params": 4197514,
+        "epochs_trained": 20,
+        "batch_size": 32,
+        "training_samples": 15000,
+        "eval_samples": 3000
+      }
     }
   ],
   "top_models": [
     {
-      "auc": 0.7601971785250397,
-      "path": "/home/carme/ATPA_CIF/experiments/iterations_0051-0100/iter_0095_20260515_143040/model.pt",
-      "iteration": "iter_0095_20260515_143040"
+      "auc": 0.9329431525548301,
+      "path": "/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0190_20260517_102847/model.pt",
+      "iteration": "iter_0190_20260517_102847"
     }
   ]
 }

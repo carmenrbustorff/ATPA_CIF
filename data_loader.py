@@ -271,14 +271,17 @@ class BirdCLEFDataset(Dataset):
     def __len__(self) -> int:
         return len(self._samples)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         try:
-            # Your existing logic
-            path, label = self._samples[idx]
+            path, label_idx = self._samples[idx]
             waveform = self._load_waveform(path)
             spectrogram = self._waveform_to_melspec(waveform)
             
-            return spectrogram, label
+            # --- THE FIX: Convert integer to a 1-hot FloatTensor ---
+            label_tensor = torch.zeros(self.num_classes, dtype=torch.float32)
+            label_tensor[label_idx] = 1.0
+            
+            return spectrogram, label_tensor
             
         except Exception as e:
             # Catch the corrupted file error
@@ -362,7 +365,7 @@ def build_dataloader(
 def mixup_collate_fn(
     batch: list,
     alpha: float = 0.4,
-    num_classes: int = 206,
+    num_classes: int = 206, # Kept for signature compatibility
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Mixup augmentation applied at the batch level.
@@ -374,11 +377,11 @@ def mixup_collate_fn(
     Parameters
     ----------
     batch:
-        List of (spectrogram, label) tuples from __getitem__.
+        List of (spectrogram, label_tensor) tuples from __getitem__.
     alpha:
         Beta distribution parameter controlling mix strength.
     num_classes:
-        Total number of species — passed in from dataset.num_classes.
+        Total number of species (kept for compatibility).
 
     Returns
     -------
@@ -387,21 +390,19 @@ def mixup_collate_fn(
         mixed_labels : (batch_size, num_classes) soft one-hot float targets
     """
     specs, labels = zip(*batch)
+    
+    # Both specs and labels are now proper tensors from __getitem__, 
+    # so we can just cleanly stack them both.
     specs  = torch.stack(specs)
-    labels = torch.tensor(labels)
-
-    one_hot = torch.zeros(len(labels), num_classes)
-    one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
+    labels = torch.stack(labels) 
 
     lam = float(np.random.beta(alpha, alpha))
     idx = torch.randperm(len(specs))
 
     mixed_specs  = lam * specs   + (1 - lam) * specs[idx]
-    mixed_labels = lam * one_hot + (1 - lam) * one_hot[idx]
+    mixed_labels = lam * labels  + (1 - lam) * labels[idx]
 
     return mixed_specs, mixed_labels
-
-
 # ---------------------------------------------------------------------------
 # Stratified train / val split factory
 # ---------------------------------------------------------------------------

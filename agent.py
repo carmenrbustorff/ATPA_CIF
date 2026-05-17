@@ -335,10 +335,10 @@ CRITICAL RULES - READ CAREFULLY:
     
     
 # 4. Optimizer, Loss, AMP Scaler, and Scheduler
-# Cooled down pos_weight to 15.0 to stabilize the positive prediction bias
-pos_weight = torch.ones([NUM_SPECIES], device=device) * 15.0 
+# Cooled down pos_weight to 5.0 to stabilize the positive prediction bias
+pos_weight = torch.ones([NUM_SPECIES], device=device) * 5.0 
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-optimizer = optim.Adam(model.parameters(), lr=0.0001) 
+optimizer = optim.Adam(model.parameters(), lr=1e-4) 
 scaler = torch.amp.GradScaler("cuda")  # type: ignore
 max_epochs = 20
 
@@ -393,6 +393,13 @@ for epoch in range(max_epochs):
     all_preds = np.array(all_preds)
     y_true_multi = np.array(all_labels) 
 
+    # --- NEW DEBUG BLOCK ---
+    print("--- EPOCH DEBUG INFO ---")
+    print(f"Predictions Min: {{np.min(all_preds):.6f}} | Max: {{np.max(all_preds):.6f}}")
+    print(f"Unique Prediction Values: {{len(np.unique(all_preds))}}")
+    print(f"Total True Positives in Validation: {{np.sum(y_true_multi)}}")
+    print("------------------------")
+    
     # Ensure we only calculate AUC for columns containing both positives and negatives
     col_sums = np.sum(y_true_multi, axis=0)
     valid_classes = (col_sums > 0) & (col_sums < len(y_true_multi))
@@ -694,7 +701,7 @@ class SimpleModel(nn.Module):
 
 model = SimpleModel(num_classes=206).to(device)
 criterion = nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 # Training loop
 epochs = 20

@@ -75,3 +75,10 @@ Expanded Training Volumetric Capacity: Adjusted the hardcoded limits in data_loa
 Calibrated Loss Function Weights: Relaxed the positive class penalty factor (pos_weight) from 50.0 down to 15.0 within BCEWithLogitsLoss. This maintains a structural penalty against the lazy "all-zeros" prediction shortcut while preventing the optimizer from over-correcting into a flat positive bias.
 Excised Metric Array Regression: Removed an incorrect np.eye conversion that treated multi-hot validation matrices as single-label integer sequences. Restored the robust matrix slicing logic to directly evaluate the multi-hot array using the (col_sums > 0) & (col_sums < len(y_true_one_hot)) mask, avoiding silent exceptions and guaranteeing valid macro-averaged AUC scores.
 Optimized Hardware Pipeline Throughput: Maintained an optimized execution layout with batch_size = 128 to fully saturate parallel processing pipelines on the Tesla V100 and limit CPU queuing cycles during audio feature decoding.
+
+Validation AUC Debug: 
+    Script execution went dark with high CPU usage; no real-time telemetry. Train loss decreased smoothly, but Validation Macro AUC froze at exactly 0.5000.Swapped subprocess.run(capture_output=True) for subprocess.Popen with a line-by-line reader and injected the -u unbuffered flag to force live logging. Set num_workers=4 and pin_memory=True in the training template to parallelize audio CPU loading, dropping epoch times from over an hour to ~2 minutes.
+    The Exception Mask: A strict instruction forcing multi_class='ovr' broke scikit-learn on multi-label 2D arrays. A generic try/except block caught the ValueError silently, forcing a fallback score of 0.5000.
+    __getitem__ was returning raw scalar class integers (e.g., 150) instead of float arrays.
+    Fed raw integers to BCEWithLogitsLoss, which evaluated them as target weights of 150.0 instead of a target probability of 1.0. The model collapsed into predicting uniform probabilities (flat base rate), yielding random-guessing performance (0.5000 AUC).Training: Escaped this because a custom mixup_collate_fn performed a hidden conversion layer that masked the issue during the forward pass.
+
