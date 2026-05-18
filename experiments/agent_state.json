@@ -1,5 +1,5 @@
 {
-  "iteration": 192,
+  "iteration": 200,
   "best_auc": 0.9329431525548301,
   "best_iteration": "iter_0190_20260517_102847",
   "history": [
@@ -1320,6 +1320,54 @@
         "training_samples": 15000,
         "eval_samples": 3000
       }
+    },
+    {
+      "iteration": "iter_0192_20260518_072320",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0193_20260518_073058",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0194_20260518_073804",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0195_20260518_074259",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0196_20260518_074549",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0197_20260518_074845",
+      "auc": 0.5525480026543795,
+      "metrics": {
+        "final_train_loss": 0.0020615154173859256,
+        "final_auc": 0.5525480026543795,
+        "num_params": 7276718,
+        "epochs_trained": 9,
+        "batch_size": 64,
+        "training_samples": 15000,
+        "eval_samples": 3000
+      }
+    },
+    {
+      "iteration": "iter_0198_20260518_091103",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0199_20260518_091707",
+      "auc": 0.0,
+      "metrics": {}
     }
   ],
   "top_models": [

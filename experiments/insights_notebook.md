@@ -82,3 +82,22 @@ Validation AUC Debug:
     __getitem__ was returning raw scalar class integers (e.g., 150) instead of float arrays.
     Fed raw integers to BCEWithLogitsLoss, which evaluated them as target weights of 150.0 instead of a target probability of 1.0. The model collapsed into predicting uniform probabilities (flat base rate), yielding random-guessing performance (0.5000 AUC).Training: Escaped this because a custom mixup_collate_fn performed a hidden conversion layer that masked the issue during the forward pass.
 
+Iteration 2: The Regularization Penalty
+    Objective: Mitigate the severe domain shift observed between the local validation AUC (0.9329) and Kaggle hidden test set AUC (0.653) from Iteration 1.Architecture: efficientnet_b1 (1-channel, scaled from B0) with a 512-dimensional custom classification head.
+    Loss Function: Focal Loss ($\gamma=2.0$, $\alpha=0.25$) to penalize errors on minority classes.
+    Augmentation Strategy: SpecAugment (Time/Frequency masking) + Gaussian Noise Injection ($\sigma=0.03$) applied directly to the log-mel spectrograms.
+    Results:
+        Validation AUC: 0.8171 (Epoch 20)
+        Leaderboard AUC: 0.600
+    Core Insights:
+      The Flaw of Spectral Noise: Injecting synthetic white noise directly onto a spectrogram matrix does not simulate acoustic environmental noise (like wind or rain). Instead, it acts as "spectral pixel noise" (like static on a television screen), obliterating the micro-harmonics of the bird calls. We successfully regularized the model, but we blinded it in the process.
+      Focal Loss Behavior: As expected, Focal Loss dropped the baseline training loss to microscopic levels (~0.0017) rapidly, proving it successfully downweighted the easily classified negative background targets.
+      Engineering & Environment Hardening
+        Kaggle Black-Box Quirks Solved:The Internet Lockout: Kaggle's scoring containers disable internet access. Model initialization must explicitly set pretrained=False (e.g., in timm), otherwise, the pipeline crashes trying to fetch Hugging Face weights.
+        Hidden Dataset Traps: Kaggle occasionally hides the training metadata CSVs during the scoring run, which kills scripts expecting them. We implemented a robust try/except blast chamber wrapping the entire main() function to prevent the kernel from dying.
+        OOM Prevention: Hidden soundscapes can be up to two hours long. To avoid the Linux OOM (Out-of-Memory) killer, the pipeline was refactored to chunk audio on the CPU, only passing a single 5-second tensor to the GPU at a time.
+        The Pandas Left-Join: Kaggle's rigid metric throws an unhandled exception if the output CSV rows don't perfectly match the hidden index. A Pandas Left-Join against the dummy sample_submission.csv guarantees strict compliance, padding missing species classes with 0.0.
+        Architectural Alignment:A discrepancy between the local agent.py checkpoint and the Kaggle inference notebook will trigger a size mismatch crash. When the local agent scales up the linear head (e.g., from 128 to 512) or the backbone (B0 to B1), the notebook script's class definition must be manually updated to mirror it perfectly before loading the state_dict.
+
+Updated Task context to explore more fruitfull models. 
+    By explicitly stating that deviation causes a "fatal script crash" and framing the backbone as a downstream VRAM limitation, the LLM is much less likely to "helpfully" upgrade the model size.
