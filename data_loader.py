@@ -70,7 +70,9 @@ TOP_DB = 80.0
 # Derived time dimension: ceil(CLIP_SAMPLES / HOP_LENGTH) = 313
 TIME_FRAMES = (CLIP_SAMPLES // HOP_LENGTH) + 1  # 313
 
-# DataLoader workers: keep CPU usage conservative on shared hosts
+# Default DataLoader worker count used by build_dataloader.
+# This is intentionally hardcoded to 2 to keep CPU usage conservative on
+# shared hosts; it is not computed dynamically from cpu_count().
 NUM_WORKERS = 2
 
 
