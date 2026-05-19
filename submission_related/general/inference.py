@@ -200,6 +200,28 @@ def generate_submission_csv(model_path, test_audio_dir, output_csv, device):
 
     if not audio_files:
         print(f"WARNING: No audio files found in {test_audio_dir}")
+        print("Checking alternative paths...")
+        alt_audio_paths = [
+            Path("/kaggle/input") / "test_soundscapes",
+            Path("/kaggle/input") / "test",
+            Path("/kaggle/input/birdclef-2026") / "test",
+            Path("/kaggle/input/birdclef-2026") / "test_soundscapes",
+        ]
+        for alt_path in alt_audio_paths:
+            if alt_path.exists():
+                test_alt_files = sorted(
+                    list(alt_path.glob("*.mp3")) +
+                    list(alt_path.glob("*.wav")) +
+                    list(alt_path.glob("*.ogg")) +
+                    list(alt_path.glob("*.flac"))
+                )
+                if test_alt_files:
+                    print(f"Found {len(test_alt_files)} audio files at {alt_path}")
+                    audio_files = test_alt_files
+                    break
+
+    if not audio_files:
+        print("WARNING: No audio files found in any location!")
         audio_files = []
 
     print(f"Found {len(audio_files)} audio files.")

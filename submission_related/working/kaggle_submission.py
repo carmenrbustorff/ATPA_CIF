@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # KAGGLE PATHS (hardcoded for Kaggle environment)
 # ============================================================================
-INPUT_DIR = Path("/kaggle/input/birdclef-2026")
+INPUT_DIR = Path("/kaggle/input/competitions/birdclef-2026")
 WORKING_DIR = Path("/kaggle/working")
 OUTPUT_CSV = WORKING_DIR / "submission.csv"
 SAMPLE_CSV = INPUT_DIR / "sample_submission.csv"
@@ -237,7 +237,29 @@ def main():
     logger.info(f"Found {len(audio_files)} audio files")
 
     if not audio_files:
-        logger.warning("No audio files found!")
+        logger.warning(f"No audio files in {test_audio_dir}")
+        logger.info("Checking alternative paths...")
+        alt_audio_paths = [
+            Path("/kaggle/input") / "test_soundscapes",
+            Path("/kaggle/input") / "test",
+            Path("/kaggle/input/birdclef-2026") / "test",
+            Path("/kaggle/input/birdclef-2026") / "test_soundscapes",
+        ]
+        for alt_path in alt_audio_paths:
+            if alt_path.exists():
+                test_alt_files = sorted(
+                    list(alt_path.glob("*.mp3")) +
+                    list(alt_path.glob("*.wav")) +
+                    list(alt_path.glob("*.ogg")) +
+                    list(alt_path.glob("*.flac"))
+                )
+                if test_alt_files:
+                    logger.info(f"Found {len(test_alt_files)} audio files at {alt_path}")
+                    audio_files = test_alt_files
+                    break
+
+    if not audio_files:
+        logger.warning("No audio files found in any location!")
         logger.info("Using all zeros for missing predictions")
 
     # ========== STEP 4: Process each audio file ==========
@@ -357,6 +379,12 @@ def main():
             check_df = pd.read_csv(OUTPUT_CSV)
             logger.info(f"✓ Verified: shape={check_df.shape}, columns={len(check_df.columns)}")
             logger.info(f"✓ Sample:\n{check_df.head()}")
+
+            # Double-check file is readable
+            with open(OUTPUT_CSV, 'r') as f:
+                first_line = f.readline()
+                logger.info(f"✓ File is readable: {first_line[:80]}")
+
             return True
         else:
             logger.error("File was not written!")
