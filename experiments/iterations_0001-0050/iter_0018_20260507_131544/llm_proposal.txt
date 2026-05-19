@@ -1,0 +1,117 @@
+Given the constraints of needing to run on CPU within 90 minutes and focusing on small-scale, fast iterations, we can start with a simple yet effective Convolutional Neural Network (CNN) architecture. This model will leverage pre-processing steps already provided in `preprocessing.py` and will be implemented using TensorFlow/Keras.
+
+### Model Architecture:
+- **Input Layer**: Accepts mel-spectrogram images.
+- **Convolutional Layers**: Several layers with ReLU activations to learn spatial hierarchies.
+- **Pooling Layers**: Max pooling to reduce dimensionality.
+- **Dropout Layers**: To prevent overfitting.
+- **Dense Layers**: Fully connected layers leading to the output layer.
+- **Output Layer**: Uses a sigmoid activation function for multi-label classification.
+
+### Data Loading:
+Assumes that data is preprocessed into mel-spectrograms and stored in a directory structure compatible with `tf.keras.preprocessing.image_dataset_from_directory`.
+
+### Evaluation:
+Uses AUC (Area Under Curve) as the evaluation metric, which is suitable for multi-label classification tasks.
+
+```python
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+# Define model architecture
+def create_model(input_shape=(128, 128, 3), num_classes=234):
+    model = models.Sequential([
+        layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        layers.MaxPooling2D((2, 2)),
+        layers.Dropout(0.25),
+
+        layers.Conv2D(64, (3, 3), activation='relu'),
+        layers.MaxPooling2D((2, 2)),
+        layers.Dropout(0.25),
+
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.5),
+        layers.Dense(num_classes, activation='sigmoid')
+    ])
+    
+    model.compile(optimizer='adam',
+                  loss='binary_crossentropy',
+                  metrics=[tf.keras.metrics.AUC(multi_label=True)])
+    return model
+
+# Data loading
+def load_data(data_dir, batch_size=32):
+    train_ds = tf.keras.preprocessing.image_dataset_from_directory(
+        data_dir,
+        labels='inferred',
+        label_mode='multi_hot',  # For multi-label classification
+        class_names=None,
+        color_mode='rgb',
+        image_size=(128, 128),
+        batch_size=batch_size,
+        validation_split=0.2,
+        subset="training",
+        seed=42)
+
+    val_ds = tf.keras.preprocessing.image_dataset_from_directory(
+        data_dir,
+        labels='inferred',
+        label_mode='multi_hot',  # For multi-label classification
+        class_names=None,
+        color_mode='rgb',
+        image_size=(128, 128),
+        batch_size=batch_size,
+        validation_split=0.2,
+        subset="validation",
+        seed=42)
+    
+    return train_ds, val_ds
+
+# Training loop
+def train_model(model, train_ds, val_ds, epochs=10):
+    history = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=epochs
+    )
+    return history
+
+# Evaluation function
+def evaluate_model(model, val_ds):
+    all_true_labels = []
+    all_pred_probs = []
+
+    for images, labels in val_ds:
+        predictions = model.predict(images)
+        all_true_labels.append(labels.numpy())
+        all_pred_probs.append(predictions)
+
+    all_true_labels = np.concatenate(all_true_labels)
+    all_pred_probs = np.concatenate(all_pred_probs)
+
+    auc_score = roc_auc_score(all_true_labels, all_pred_probs, average='macro')
+    print(f"Validation AUC: {auc_score}")
+
+# Main execution
+if __name__ == "__main__":
+    data_dir = "/home/carme/birdclef-data"
+    batch_size = 32
+    epochs = 5  # Adjust based on time constraints
+
+    train_ds, val_ds = load_data(data_dir, batch_size)
+    model = create_model()
+    
+    history = train_model(model, train_ds, val_ds, epochs)
+    evaluate_model(model, val_ds)
+```
+
+### Explanation:
+- **Model Architecture**: A simple CNN with two convolutional blocks followed by dropout layers to reduce overfitting. The final dense layer uses a sigmoid activation function suitable for multi-label classification.
+- **Data Loading**: Utilizes `tf.keras.preprocessing.image_dataset_from_directory` to load images in batches, with labels encoded as multi-hot vectors for each species.
+- **Training Loop**: Trains the model using binary cross-entropy loss and tracks AUC during validation.
+- **Evaluation**: Computes AUC across all classes to evaluate the model's performance.
+
+This setup allows for rapid experimentation due to its simplicity and efficiency on CPU.

@@ -112,14 +112,17 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        import ollama  # type: ignore
+        from ollama import Client  # type: ignore
+
+        # Create a client that respects the 300-second timeout
+        client = Client(host=self.base_url, timeout=self.timeout)
 
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        response = ollama.chat(
+        response = client.chat(
             model=self.model,
             messages=messages,
             options={

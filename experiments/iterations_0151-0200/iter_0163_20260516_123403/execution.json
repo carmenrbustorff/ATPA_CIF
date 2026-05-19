@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0163_20260516_123403/train.py\", line 32, in <module>\n    class BirdClassifier(nn.Module):\n    ...<26 lines>...\n            return x\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0163_20260516_123403/train.py\", line 33, in BirdClassifier\n    def __init__(self, num_classes=NUM_SPECIES):\n                                   ^^^^^^^^^^^\nNameError: name 'NUM_SPECIES' is not defined\n",
+  "timed_out": false,
+  "duration_s": 4.8
+}

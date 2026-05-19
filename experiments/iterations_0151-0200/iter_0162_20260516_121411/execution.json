@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0162_20260516_121411/train.py\", line 73, in <module>\n    train_loader = DataLoader(dataset=None, batch_size=BATCH_SIZE, shuffle=True)  # Replace with actual dataset\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/utils/data/dataloader.py\", line 383, in __init__\n    sampler = RandomSampler(dataset, generator=generator)  # type: ignore[arg-type]\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/utils/data/sampler.py\", line 164, in __init__\n    if not isinstance(self.num_samples, int) or self.num_samples <= 0:\n                      ^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/utils/data/sampler.py\", line 173, in num_samples\n    return len(self.data_source)\nTypeError: object of type 'NoneType' has no len()\n",
+  "timed_out": false,
+  "duration_s": 4.29
+}

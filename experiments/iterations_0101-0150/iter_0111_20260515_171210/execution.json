@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0101-0150/iter_0111_20260515_171210/train.py\", line 37, in <module>\n    train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size, augment=True)\nTypeError: get_dataloader() got an unexpected keyword argument 'augment'\n",
+  "timed_out": false,
+  "duration_s": 4.72
+}

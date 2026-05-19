@@ -1,0 +1,102 @@
+Given the constraints of rapid iteration and CPU execution, we will propose a lightweight CNN-based architecture using TensorFlow/Keras. This architecture will be designed to handle multi-label classification on mel-spectrograms efficiently.
+
+### Model Architecture:
+- **Input Layer**: Accepts 96x96 pixel mel-spectrogram images.
+- **Convolutional Layers**: Several convolutional layers with ReLU activations and max-pooling for feature extraction.
+- **Dropout Layers**: To prevent overfitting, especially given the limited dataset size.
+- **Global Average Pooling Layer**: Reduces dimensionality before the final dense layer.
+- **Dense Layer**: Outputs a 234-dimensional vector with sigmoid activation to handle multi-label classification.
+
+### Training Loop:
+- **Loss Function**: Binary Crossentropy suitable for multi-label classification.
+- **Optimizer**: Adam optimizer for efficient convergence.
+- **Metrics**: AUC (Area Under Curve) will be used as the primary evaluation metric.
+
+### Data Loading Assumptions:
+- The dataset is preprocessed and stored in a directory structure where each class has its own subdirectory containing mel-spectrograms.
+- Mel-spectrograms are already normalized to a size of 96x96 pixels.
+
+```python
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, GlobalAveragePooling2D, Dense, Dropout, BatchNormalization
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import roc_auc_score
+
+# Model Architecture
+def create_model(input_shape=(96, 96, 1), num_classes=234):
+    model = Sequential([
+        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        MaxPooling2D((2, 2)),
+        BatchNormalization(),
+        
+        Conv2D(64, (3, 3), activation='relu'),
+        MaxPooling2D((2, 2)),
+        BatchNormalization(),
+        
+        Dropout(0.25),
+        
+        Conv2D(128, (3, 3), activation='relu'),
+        MaxPooling2D((2, 2)),
+        BatchNormalization(),
+        
+        GlobalAveragePooling2D(),
+        
+        Dense(256, activation='relu'),
+        Dropout(0.5),
+        
+        Dense(num_classes, activation='sigmoid')
+    ])
+    
+    model.compile(optimizer='adam',
+                  loss='binary_crossentropy',
+                  metrics=[tf.keras.metrics.AUC(multi_label=True)])
+    return model
+
+# Data Loading
+data_dir = "/home/carme/birdclef-data"
+batch_size = 32
+
+train_datagen = ImageDataGenerator(rescale=1./255, validation_split=0.2)
+train_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(96, 96),
+    batch_size=batch_size,
+    class_mode='binary',
+    subset='training'
+)
+
+validation_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(96, 96),
+    batch_size=batch_size,
+    class_mode='binary',
+    subset='validation'
+)
+
+# Model Training
+model = create_model()
+history = model.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples // batch_size,
+    validation_data=validation_generator,
+    validation_steps=validation_generator.samples // batch_size,
+    epochs=10  # Adjust as needed based on time constraints
+)
+
+# Evaluation
+def evaluate_model(model, generator):
+    y_true = generator.classes
+    y_pred = model.predict(generator)
+    auc_score = roc_auc_score(y_true, y_pred, average='macro', multi_class='ovr')
+    return auc_score
+
+validation_auc = evaluate_model(model, validation_generator)
+print(f"Validation AUC: {validation_auc}")
+```
+
+### Explanation:
+- **Model Design**: The CNN is designed to be lightweight and efficient, using batch normalization to stabilize training.
+- **Data Augmentation**: Implemented through `ImageDataGenerator` with a simple rescale. Validation split is used to separate training and validation data.
+- **Training**: The model is trained for 10 epochs as an initial step; this can be adjusted based on time constraints and performance.
+- **Evaluation**: AUC score is calculated using `roc_auc_score` from `sklearn.metrics`, providing a comprehensive measure of the model's performance across all classes.

@@ -1,0 +1,136 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import soundfile as sf
+
+# Constants
+NUM_SPECIES = 206
+BATCH_SIZE = 32
+MAX_EPOCHS = 40
+LEARNING_RATE = 0.001
+DROPOUT_RATE = 0.5
+WEIGHT_DECAY = 1e-4
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=BATCH_SIZE,
+    augment=True,
+    val_split=0.2,
+    num_workers=4,
+    pin_memory=True
+)
+
+# Model definition
+class BirdClassifier(nn.Module):
+    def __init__(self, base_model, num_classes):
+        super(BirdClassifier, self).__init__()
+        self.base_model = base_model
+        for param in self.base_model.parameters():
+            param.requires_grad = False
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(base_model.num_features, 512),
+            nn.ReLU(),
+            nn.Dropout(DROPOUT_RATE),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        features = self.base_model(x)
+        return self.classifier(features)
+
+# Load pre-trained model and adapt it
+from torchvision.models import resnet18
+base_model = resnet18(pretrained=True)
+num_features = base_model.fc.in_features
+base_model.fc = nn.Identity()  # Remove final fc layer
+
+model = BirdClassifier(base_model, NUM_SPECIES).to('cuda')
+
+# Loss function and optimizer
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+
+# Training loop
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+train_losses = []
+best_val_auc = 0.0
+patience = 5
+early_stop_counter = 0
+
+for epoch in range(MAX_EPOCHS):
+    model.train()
+    total_loss = 0.0
+    
+    for inputs, labels in tqdm(train_loader):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    
+    train_loss = total_loss / len(train_loader)
+    train_losses.append(train_loss)
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(val_loader):
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            preds = torch.sigmoid(outputs).cpu().numpy()
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+    
+    all_preds = np.array(all_preds)
+    all_labels_one_hot = np.eye(NUM_SPECIES)[all_labels]
+    
+    val_auc = roc_auc_score(all_labels_one_hot, all_preds, average='weighted', multi_class='ovr')
+    print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val AUC: {val_auc:.4f}")
+    
+    if val_auc > best_val_auc:
+        best_val_auc = val_auc
+        early_stop_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        early_stop_counter += 1
+        if early_stop_counter >= patience:
+            print("Early stopping triggered.")
+            break
+
+# Save metrics
+metrics = {
+    "final_train_loss": train_losses[-1],
+    "final_auc": best_val_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```

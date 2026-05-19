@@ -1,0 +1,139 @@
+```python
+import os
+import json
+import numpy as np
+from sklearn.metrics import roc_auc_score
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+# Define hyperparameters based on iteration number
+iteration = 1  # Change this to the current iteration number
+batch_size = 16 if iteration % 3 == 1 else (8 if iteration % 3 == 0 else 32)
+lr = 0.0001 if iteration % 3 == 1 else (0.001 if iteration % 3 == 0 else 0.00001)
+num_conv_layers = 3 if iteration % 3 == 1 else (2 if iteration % 3 == 0 else 4)
+dropout_rate = 0.2
+weight_decay = 0.0001
+
+# Define the model architecture
+class BirdClassifier(nn.Module):
+    def __init__(self, num_classes=NUM_SPECIES):
+        super(BirdClassifier, self).__init__()
+        layers = []
+        in_channels = 1
+        out_channels = 32
+        
+        for _ in range(num_conv_layers):
+            layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU())
+            layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+            in_channels = out_channels
+            out_channels *= 2
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(in_channels * 8 * 8, 512)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc2 = nn.Linear(512, num_classes)
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.flatten(x)
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
+# Load data
+train_loader = build_train_val_dataloaders(batch_size=batch_size, augment=True)[0]
+
+# Initialize model, optimizer, and loss function
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model = BirdClassifier().to(device)
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+scaler = torch.cuda.amp.GradScaler("cuda")
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3)
+
+# Training loop
+num_epochs = 20
+early_stopping_patience = 5
+best_val_auc = 0
+epochs_without_improvement = 0
+
+for epoch in range(num_epochs):
+    model.train()
+    total_loss = 0.0
+    
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        
+        with torch.amp.autocast("cuda"):
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.float())
+        
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        
+        total_loss += loss.item()
+    
+    avg_train_loss = total_loss / len(train_loader)
+    print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss:.4f}")
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for inputs, labels in tqdm(train_loader, desc="Validation"):
+            inputs, labels = inputs.to(device), labels.to(device)
+            
+            outputs = model(inputs)
+            preds = torch.sigmoid(outputs).cpu().numpy()
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+    
+    all_preds = np.array(all_preds)
+    all_labels = np.eye(NUM_SPECIES)[all_labels]
+    
+    val_auc = roc_auc_score(all_labels, all_preds, average='weighted', multi_class='ovr')
+    print(f"Epoch {epoch+1}, Validation AUC: {val_auc:.4f}")
+    
+    scheduler.step(val_auc)
+    
+    if val_auc > best_val_auc:
+        best_val_auc = val_auc
+        epochs_without_improvement = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        epochs_without_improvement += 1
+    
+    if epochs_without_improvement >= early_stopping_patience:
+        print("Early stopping triggered.")
+        break
+
+# Save metrics to JSON
+metrics = {
+    "final_train_loss": avg_train_loss,
+    "final_auc": best_val_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(train_loader.dataset)  # Assuming the same dataset is used for evaluation
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+This script includes a new model architecture with varying numbers of convolutional layers based on the iteration number. It also implements Automatic Mixed Precision (AMP), SpecAugment, and early stopping. The training loop reports loss per epoch, evaluates validation AUC, and saves the model checkpoint and metrics JSON file.

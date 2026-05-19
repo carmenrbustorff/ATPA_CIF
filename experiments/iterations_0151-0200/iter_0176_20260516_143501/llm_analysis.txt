@@ -1,0 +1,85 @@
+### Analysis of Training Run
+
+#### 1. What Worked Well?
+
+- **Model Performance**: The model achieved an AUC of approximately 0.496, which is slightly above chance level (0.5), indicating some ability to distinguish between the classes.
+  
+- **Training Loss**: The final training loss was relatively low at 0.0403, suggesting that the model was able to fit the training data reasonably well.
+
+- **Number of Parameters**: With 4,387,850 parameters, the model has a good balance between complexity and generalization capabilities.
+
+- **Batch Size**: Using a batch size of 128 is a common choice for many models, providing a good trade-off between training speed and stability.
+
+#### 2. What Needs Improvement?
+
+- **AUC**: The AUC score being close to chance level suggests that the model may not be capturing meaningful patterns in the data or there could be a significant imbalance between classes.
+
+- **Overfitting/Underfitting**: Although the final loss is low, it’s crucial to ensure that this doesn’t come at the expense of overfitting. This can be checked by comparing training and validation losses and accuracies.
+
+- **Training Duration**: The training duration was 384 seconds (approximately 6 minutes), which could be optimized for faster training without compromising performance.
+
+#### 3. Specific Changes for the Next Iteration
+
+1. **Improve Model Architecture**:
+   - Consider using a different model architecture that might better capture the underlying patterns in the data.
+   ```python
+   # Example: Using a more complex architecture like ResNet or Transformer-based models
+   from transformers import TFAutoModelForSequenceClassification
+
+   model = TFAutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=num_classes)
+   ```
+
+2. **Data Augmentation**:
+   - Introduce data augmentation techniques to improve the diversity of the training data and potentially reduce overfitting.
+   ```python
+   # Example: Simple text augmentation using back-translation or synonym replacement
+   from transformers import pipeline
+
+   translator = pipeline("translation_en_to_fr", model="Helsinki-NLP/opus-mt-en-fr")
+   augmented_text = translator(text)[0]['translation_text']
+   ```
+
+3. **Class Imbalance**:
+   - If there is a class imbalance, consider techniques like oversampling the minority class or using class weights.
+   ```python
+   # Example: Using class weights in training
+   from sklearn.utils.class_weight import compute_class_weight
+
+   class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+   class_weights_dict = dict(enumerate(class_weights))
+
+   model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'], class_weight=class_weights_dict)
+   ```
+
+4. **Early Stopping**:
+   - Implement early stopping to halt training when the validation performance stops improving.
+   ```python
+   # Example: Using EarlyStopping callback in TensorFlow/Keras
+   from tensorflow.keras.callbacks import EarlyStopping
+
+   early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+   model.fit(train_dataset, epochs=10, validation_data=val_dataset, callbacks=[early_stopping])
+   ```
+
+5. **Learning Rate Scheduling**:
+   - Use a learning rate scheduler to adjust the learning rate during training.
+   ```python
+   # Example: Using ReduceLROnPlateau callback in TensorFlow/Keras
+   from tensorflow.keras.callbacks import ReduceLROnPlateau
+
+   reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-6)
+   model.fit(train_dataset, epochs=10, validation_data=val_dataset, callbacks=[reduce_lr])
+   ```
+
+6. **Batch Size Tuning**:
+   - Experiment with different batch sizes to find the optimal one that balances training speed and performance.
+   ```python
+   # Example: Training with a different batch size
+   batch_size = 256
+   train_dataset = train_dataset.batch(batch_size)
+   val_dataset = val_dataset.batch(batch_size)
+
+   model.fit(train_dataset, epochs=10, validation_data=val_dataset)
+   ```
+
+By implementing these changes, the model should be better equipped to learn from the data and potentially achieve a higher AUC score.

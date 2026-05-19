@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-16 13:09:14,255 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:09:16,541 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:09:16,553 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 13:09:16,577 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 13:09:16,577 | INFO     | data_loader | Train: 40 batches  |  Val: 8 batches  (batch_size=128)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0165_20260516_130812/train.py\", line 69, in <module>\n    model = BirdCLEFModel(NUM_SPECIES).to('cuda')\n            ~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0165_20260516_130812/train.py\", line 49, in __init__\n    self.base_model = timm.create_model('efficientnet_b0', pretrained=True)\n                      ^^^^\nNameError: name 'timm' is not defined\n",
+  "timed_out": false,
+  "duration_s": 8.94
+}

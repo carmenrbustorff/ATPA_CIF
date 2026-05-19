@@ -1,0 +1,126 @@
+```python
+import os
+import json
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import roc_auc_score
+from data_loader import build_train_val_dataloaders
+import timm
+
+# 1. Setup
+NUM_SPECIES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# 2. Data Loaders
+train_loader, val_loader = build_train_val_dataloaders(
+    batch_size=128,
+    augment=True,
+    val_split=0.2
+)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 3. Model Architecture (Transfer Learning)
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.base_model = timm.create_model("efficientnet_b0", pretrained=True, in_chans=1, num_classes=0)
+        
+        # Freeze the base model weights
+        for param in self.base_model.parameters():
+            param.requires_grad = False
+            
+        self.classifier = nn.Sequential(
+            nn.Linear(self.base_model.num_features, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
+    
+    def forward(self, x):
+        features = self.base_model(x)
+        logits = self.classifier(features)
+        return logits
+
+model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+
+# 4. Optimizer, Loss, and AMP Scaler
+criterion = nn.BCEWithLogitsLoss()
+
+# Pass ALL parameters and lower the learning rate for fine-tuning
+optimizer = optim.Adam(model.parameters(), lr=0.0003) 
+scaler = torch.amp.GradScaler("cuda")
+max_epochs = 3
+
+# Training loop
+for epoch in range(max_epochs):
+    model.train()
+    train_loss = 0.0
+    for batch_idx, (inputs, labels) in enumerate(tqdm(train_loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        
+        with torch.amp.autocast("cuda"):
+            logits = model(inputs)
+            loss = criterion(logits, labels.float())
+        
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        
+        train_loss += loss.item() / len(train_loader)
+
+    print(f"Epoch {epoch+1}/{max_epochs}, Train Loss: {train_loss:.4f}")
+
+# Validation loop
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in tqdm(val_loader):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        with torch.amp.autocast("cuda"):
+            logits = model(inputs)
+        
+        preds = torch.sigmoid(logits).cpu().numpy()
+        all_preds.extend(preds)
+        all_labels.extend(labels.cpu().numpy())
+
+all_preds = np.array(all_preds)
+y_true_one_hot = np.zeros((len(all_labels), NUM_SPECIES))
+for row_idx, col_idx in enumerate(all_labels):
+    y_true_one_hot[row_idx, col_idx] = 1.0
+
+valid_classes = np.any(y_true_one_hot == 1, axis=0)
+filtered_true = y_true_one_hot[:, valid_classes]
+filtered_preds = all_preds[:, valid_classes]
+
+final_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro', multi_class='ovr'))
+print(f"Final Validation AUC: {final_auc:.4f}")
+
+# Save metrics
+metrics = {
+    "final_train_loss": train_loss,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": max_epochs,
+    "batch_size": 128,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+
+# Save model checkpoint
+torch.save(model.state_dict(), 'model.pt')
+```
