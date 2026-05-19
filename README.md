@@ -122,24 +122,20 @@ spec = file_to_melspec("bird_call.ogg", backend="librosa", n_mels=64, duration=5
 
 ### `models.py`
 
-Ready-to-train model scaffolds for TensorFlow/Keras and PyTorch.
+Ready-to-train model scaffolds for PyTorch.
 
 ```python
-from models import get_model, compile_tf_model
-model = get_model("simple_cnn_tf")                  # fast baseline
-model = get_model("efficientnet_tf", freeze_base=True)   # transfer learning
-model = get_model("simple_cnn_torch")               # PyTorch baseline
+from models import build_simple_cnn_torch, build_efficientnet_torch
+model = build_simple_cnn_torch()                    # fast baseline
+model = build_efficientnet_torch(freeze_base=True) # transfer learning
 ```
 
 Available models:
 
-| Name | Backend | Description |
-|------|---------|-------------|
-| `simple_cnn_tf` | TF/Keras | Lightweight 3-block CNN |
-| `efficientnet_tf` | TF/Keras | EfficientNetB0 + ImageNet weights |
-| `birdnet_tf` | TF/Keras | BirdNET-inspired depthwise-sep CNN |
-| `simple_cnn_torch` | PyTorch | Lightweight 3-block CNN |
-| `efficientnet_torch` | PyTorch | EfficientNetB0 + ImageNet weights |
+| Name | Description |
+|------|-------------|
+| `simple_cnn_torch` | Lightweight 3-block CNN |
+| `efficientnet_torch` | EfficientNetB0 + ImageNet weights |
 
 ### `generate_submission.py`
 
@@ -153,9 +149,9 @@ python generate_submission.py --output submission_notebook.ipynb
 
 ## Technical Constraints
 
-- **Frameworks**: TensorFlow/Keras or PyTorch
-- **Small-scale first**: default 5 s clips, 64-mel low-res spectrograms
-- **Multi-label**: 234 species, sigmoid output, binary cross-entropy loss
+- **Framework**: PyTorch (GPU-optimized with CUDA support)
+- **Small-scale first**: default 5 s clips, 128-mel spectrograms
+- **Multi-label**: 206 species, BCEWithLogitsLoss (raw logits output)
 - **Kaggle budget**: ≤ 90 minutes CPU-only inference
 
 ---
@@ -182,9 +178,8 @@ experiments/
 See `requirements.txt`. Key packages:
 
 ```
-tensorflow, torch, torchaudio, librosa, numpy, pandas,
-matplotlib, scikit-learn, ollama, kaggle, jupyter, nbformat
-
+torch, torchaudio, torchvision, librosa, numpy, pandas,
+scikit-learn, ollama, kaggle, jupyter, nbformat
 ```
 
 all done!
