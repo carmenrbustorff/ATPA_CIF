@@ -1,5 +1,5 @@
 {
-  "iteration": 201,
+  "iteration": 202,
   "best_auc": 0.9608865077280887,
   "best_iteration": "iter_0200_20260518_092346",
   "history": [
@@ -1381,6 +1381,11 @@
         "training_samples": 15000,
         "eval_samples": 3000
       }
+    },
+    {
+      "iteration": "iter_0201_20260519_152928",
+      "auc": 0.0,
+      "metrics": {}
     }
   ],
   "top_models": [
