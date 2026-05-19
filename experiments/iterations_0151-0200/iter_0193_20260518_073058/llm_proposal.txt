@@ -1,0 +1,208 @@
+To improve the model architecture for the BirdCLEF+ 2026 competition (Track B), we can consider adding additional layers to the classifier head to enhance feature extraction and potentially capture more complex patterns in the mel-spectrograms. Additionally, we can experiment with different activation functions and dropout rates to prevent overfitting.
+
+Here is an improved model architecture along with the training loop, data loading assumptions, and evaluation code:
+
+```python
+import os
+import json
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import roc_auc_score
+from data_loader import build_train_val_dataloaders
+import timm
+import torchaudio.transforms as T
+
+# 1. Setup
+NUM_SPECIES = 206
+
+# 2. Data Loaders
+batch_size = 64
+train_loader, val_loader = build_train_val_dataloaders(
+    batch_size=batch_size,
+    augment=True,
+    val_split=0.2,
+    num_workers=4,
+    pin_memory=True
+)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Custom Focal Loss
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+    def forward(self, inputs, targets):
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        pt = torch.exp(-bce_loss)
+        return (self.alpha * (1 - pt) ** self.gamma * bce_loss).mean()
+
+# Mixup Function
+def mixup_data(x, y, alpha=0.2):
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).to(x.device)
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+# 3. Improved Model Architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.base_model = timm.create_model("efficientnet_b1", pretrained=True, in_chans=1, num_classes=0)
+        for param in self.base_model.parameters():
+            param.requires_grad = True 
+        in_features = getattr(self.base_model, "num_features")
+        self.classifier = nn.Sequential(
+            nn.Linear(in_features, 2048), 
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(2048, 1024), 
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(1024, num_classes)
+        )
+    def forward(self, x):
+        features = self.base_model(x)
+        logits = self.classifier(features)
+        return logits
+
+model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+
+# 4. Optimizer, Loss, AMP Scaler
+criterion = FocalLoss(alpha=0.25, gamma=2.0)
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4) 
+scaler = torch.amp.GradScaler("cuda")  # type: ignore
+max_epochs = 40
+
+# Augmentations
+freq_mask = T.FrequencyMasking(freq_mask_param=24).to(device)
+time_mask = T.TimeMasking(time_mask_param=64).to(device)
+
+# --- TRAINING AND VALIDATION LOOPS ---
+all_train_losses = []
+best_auc = 0.0
+patience = 5
+early_stop_counter = 0
+
+for epoch in range(max_epochs):
+    model.train()
+    epoch_loss = 0.0
+    
+    for batch_idx, (inputs, labels) in enumerate(train_loader):
+        try:
+            inputs = inputs.to(device)
+            labels = labels.float().to(device)
+            
+            # Apply Mixup
+            inputs, targets_a, targets_b, lam = mixup_data(inputs, labels, alpha=0.2)
+            
+            # Apply SpecAugment
+            inputs = freq_mask(inputs)
+            inputs = time_mask(inputs)
+            
+            optimizer.zero_grad()
+            
+            with torch.autocast(device_type="cuda"):
+                logits = model(inputs)
+                loss = lam * criterion(logits, targets_a) + (1 - lam) * criterion(logits, targets_b)
+            
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
+            
+            epoch_loss += loss.item()
+            torch.cuda.empty_cache()
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print("OOM caught during training step. Skipping batch.")
+                torch.cuda.empty_cache()
+                continue
+            else:
+                raise e
+    
+    avg_epoch_loss = epoch_loss / len(train_loader)
+    all_train_losses.append(avg_epoch_loss)
+    print(f"Epoch {epoch + 1}/{max_epochs}, Train Loss: {avg_epoch_loss:.4f}")
+
+    # Validation Pass
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs = inputs.to(device)
+            labels = labels.float().to(device)
+            
+            with torch.autocast(device_type="cuda"):
+                logits = model(inputs)
+                preds = torch.sigmoid(logits).cpu().numpy()
+            
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+
+    all_preds = np.array(all_preds)
+    y_true_multi = np.array(all_labels) 
+
+    col_sums = np.sum(y_true_multi, axis=0)
+    valid_classes = (col_sums > 0) & (col_sums < len(y_true_multi))
+
+    if np.any(valid_classes):
+        filtered_true = y_true_multi[:, valid_classes]
+        filtered_preds = all_preds[:, valid_classes]
+        try:
+            current_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro'))
+        except Exception as e:
+            current_auc = 0.5000
+    else:
+        current_auc = 0.5000
+
+    print(f"Epoch {epoch + 1}/{max_epochs}, Validation AUC: {current_auc:.4f}")
+
+    # Early Stopping & Best Weights Tracking
+    if current_auc > best_auc:
+        best_auc = current_auc
+        early_stop_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+        print(f"--> Saved new best checkpoint with AUC: {best_auc:.4f}")
+    else:
+        early_stop_counter += 1
+        print(f"Early stopping counter: {early_stop_counter}/{patience}")
+        if early_stop_counter >= patience:
+            print("Early stopping triggered.")
+            break
+
+# Save Metrics
+metrics = {
+    "final_train_loss": all_train_losses[-1] if all_train_losses else 0.0,
+    "final_auc": best_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size, 
+    "training_samples": len(train_loader.dataset), 
+    "eval_samples": len(val_loader.dataset) 
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+```
+
+### Key Changes:
+1. **Improved Classifier Head**: Added an additional fully connected layer with 2048 units and another dropout layer to prevent overfitting.
+2. **Training Loop and Data Loading**: The training loop remains the same, ensuring that Mixup augmentation and SpecAugment are applied during training.
+3. **Evaluation**: The validation loop calculates the AUC score for valid classes only to ensure meaningful evaluation.
+
+This architecture should help in capturing more complex patterns in the data while maintaining a manageable number of parameters.

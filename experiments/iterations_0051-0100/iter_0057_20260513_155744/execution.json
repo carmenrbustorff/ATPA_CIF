@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "Epoch 1, Batch 1, Loss: 0.6990\nEpoch 1, Batch 2, Loss: 0.6893\nEpoch 1, Batch 3, Loss: 0.6795\nEpoch 1, Batch 4, Loss: 0.6694\nEpoch 1, Batch 5, Loss: 0.6599\nEpoch 1, Batch 6, Loss: 0.6490\nEpoch 1, Batch 7, Loss: 0.6277\nEpoch 1, Batch 8, Loss: 0.6264\nEpoch 1, Batch 9, Loss: 0.5962\nEpoch 1, Batch 10, Loss: 0.5884\nValidation AUC: 0.4936\nEpoch 2, Batch 1, Loss: 0.5725\nEpoch 2, Batch 2, Loss: 0.5608\nEpoch 2, Batch 3, Loss: 0.5201\nEpoch 2, Batch 4, Loss: 0.4973\nEpoch 2, Batch 5, Loss: 0.4820\nEpoch 2, Batch 6, Loss: 0.4608\nEpoch 2, Batch 7, Loss: 0.4403\nEpoch 2, Batch 8, Loss: 0.3951\nEpoch 2, Batch 9, Loss: 0.3739\nEpoch 2, Batch 10, Loss: 0.3511\nValidation AUC: 0.4947\nMETRICS: {\"final_train_loss\": 0.4653990149497986, \"final_auc\": 0.49470103299109397, \"num_params\": 57514, \"epochs_trained\": 2, \"batch_size\": 8, \"training_samples\": 160, \"eval_samples\": 71098}\n",
+  "stderr": "/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/sklearn/metrics/_ranking.py:442: UndefinedMetricWarning: Only one class is present in y_true. ROC AUC score is not defined in that case.\n  warnings.warn(\n/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/sklearn/metrics/_ranking.py:442: UndefinedMetricWarning: Only one class is present in y_true. ROC AUC score is not defined in that case.\n  warnings.warn(\n",
+  "timed_out": false,
+  "duration_s": 360.73,
+  "metrics": {
+    "final_train_loss": 0.4653990149497986,
+    "final_auc": 0.49470103299109397,
+    "num_params": 57514,
+    "epochs_trained": 2,
+    "batch_size": 8,
+    "training_samples": 160,
+    "eval_samples": 71098
+  }
+}

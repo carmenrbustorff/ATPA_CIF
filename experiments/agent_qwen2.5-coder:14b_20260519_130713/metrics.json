@@ -1,0 +1,61 @@
+{
+  "status": "success",
+  "llm_name": "qwen2.5-coder:14b",
+  "model": "efficientnet_torch",
+  "config": {
+    "model": "efficientnet_torch",
+    "epochs": "5",
+    "batch_size": "32",
+    "lr": "1e-05",
+    "weight_decay": "0.0",
+    "val_split": "0.2",
+    "augment": "True",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "agent_qwen2.5-coder:14b_20260519_130713",
+    "llm_name": "qwen2.5-coder:14b",
+    "seed": "42"
+  },
+  "best_val_auc": 0.5229243711541552,
+  "best_epoch": 5,
+  "epochs_completed": 5,
+  "epoch_log": [
+    {
+      "epoch": 1,
+      "train_loss": 0.4355228980762216,
+      "val_loss": 0.2885148617451501,
+      "val_auc": 0.517733468460741,
+      "time_s": 59.9389488697052
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.20224283355695727,
+      "val_loss": 0.16959240908980905,
+      "val_auc": 0.519113414504582,
+      "time_s": 59.65722846984863
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.1268006611795608,
+      "val_loss": 0.11651376307411579,
+      "val_auc": 0.5202528609958523,
+      "time_s": 59.74052929878235
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.09359863665294325,
+      "val_loss": 0.09217737867359088,
+      "val_auc": 0.5205070603442605,
+      "time_s": 62.72487425804138
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.0752759526815806,
+      "val_loss": 0.0818368757285612,
+      "val_auc": 0.5229243711541552,
+      "time_s": 56.853004693984985
+    }
+  ],
+  "early_stopped": false,
+  "error_message": null
+}

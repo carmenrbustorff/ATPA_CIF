@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0045_20260513_142630/train.py\", line 75, in <module>\n    train_loader.dataset.limit_samples(5000)  # Limit to first 5000 samples for fast feedback\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'BirdCLEFDataset' object has no attribute 'limit_samples'\n",
+  "timed_out": false,
+  "duration_s": 16.96
+}

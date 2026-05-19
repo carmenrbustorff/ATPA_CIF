@@ -1,0 +1,134 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Define the iteration number for hyperparameter selection
+iteration = 9
+
+# Hyperparameters based on iteration number
+batch_size_options = {0: 8, 1: 16, 2: 32}
+learning_rate_options = {0: 0.001, 1: 0.0001, 2: 0.00001}
+conv_layer_depths = {0: 2, 1: 3, 2: 4}
+
+batch_size = batch_size_options[iteration % 3]
+lr = learning_rate_options[iteration % 3]
+num_conv_layers = conv_layer_depths[iteration % 3]
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)
+
+# Define the model architecture based on selected number of conv layers
+class BirdClassifier(nn.Module):
+    def __init__(self, num_conv_layers=3, dropout_rate=0.2):
+        super(BirdClassifier, self).__init__()
+        self.conv_layers = nn.Sequential()
+        in_channels = 1
+        for i in range(num_conv_layers):
+            out_channels = 32 * (i + 1)
+            self.conv_layers.add_module(f'conv{i+1}', nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            self.conv_layers.add_module(f'bn{i+1}', nn.BatchNorm2d(out_channels))
+            self.conv_layers.add_module(f'relu{i+1}', nn.ReLU())
+            in_channels = out_channels
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.Linear(in_channels, 128), nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, 234)  # NO BatchNorm1d!
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model, optimizer, and loss function
+model = BirdClassifier(num_conv_layers=num_conv_layers, dropout_rate=0.2).to('cuda')
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)
+criterion = nn.BCELoss()
+
+# Training loop
+epochs = 2
+batch_count = 0
+model.train()
+train_losses = []
+
+for epoch in range(epochs):
+    for inputs, labels in train_loader:
+        batch_count += 1
+        if batch_count >= 10:  # Limit to N batches for fast feedback
+            break
+
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        train_losses.append(loss.item())
+        print(f'Epoch {epoch+1}, Batch {batch_count}, Loss: {loss.item()}')
+
+        torch.cuda.empty_cache()  # Prevent GPU fragmentation
+
+# Evaluation
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        outputs = model(inputs)
+        all_preds.append(outputs.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
+
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+all_preds = np.concatenate(all_preds)
+all_labels = np.concatenate(all_labels)
+
+# Compute weighted AUC for multi-label classification
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Metrics collection and saving
+num_params = sum(p.numel() for p in model.parameters())
+metrics = {
+    "final_train_loss": np.mean(train_losses),
+    "final_auc": final_auc,
+    "num_params": num_params,
+    "epochs_trained": epochs,
+    "batch_size": batch_size,
+    "training_samples": batch_count * batch_size,
+    "eval_samples": all_labels.shape[0]
+}
+
+print("METRICS:", json.dumps(metrics))
+
+# Save model and metrics
+torch.save(model.state_dict(), 'model.pt')
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+```
+
+### Explanation:
+
+- **Model Architecture**: The `BirdClassifier` class is designed to be flexible with the number of convolutional layers. It uses batch normalization and ReLU activations after each convolutional layer. An adaptive average pooling layer ensures robust flattening before passing features through two dense layers for classification.
+  
+- **Training Loop**: The model is trained using the Adam optimizer and binary cross-entropy loss suitable for multi-label classification tasks. Training is limited to 10 batches for rapid iteration, as per the guidelines.
+
+- **Evaluation**: After training, the model is evaluated on the same dataset in evaluation mode. Predictions are aggregated to compute the weighted AUC score, which is a common metric for evaluating multi-label classifiers.
+
+- **Hyperparameter Exploration**: Hyperparameters such as batch size, learning rate, and convolutional layer depth are systematically varied based on the iteration number to explore different configurations quickly.
+
+- **Metrics and Model Saving**: Metrics including training loss, final AUC, number of parameters, and sample counts are saved in a JSON file. The model weights are also saved for potential reuse or submission.

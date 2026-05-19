@@ -1,0 +1,135 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Hyperparameters
+NUM_EPOCHS = 10
+BATCH_SIZE = 32 if (6 % 3 == 2) else 16 if (6 % 3 == 1) else 8
+LEARNING_RATE = 0.00001 if (6 % 3 == 2) else 0.0001 if (6 % 3 == 1) else 0.001
+NUM_CONV_LAYERS = 4 if (6 % 3 == 2) else 3 if (6 % 3 == 1) else 2
+DROPOUT_RATE = 0.5
+
+# Constants
+NUM_CLASSES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Model Architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes=NUM_CLASSES):
+        super(BirdCLEFModel, self).__init__()
+        
+        # Convolutional layers
+        conv_layers = []
+        in_channels = 1
+        out_channels = 32
+        for _ in range(NUM_CONV_LAYERS):
+            conv_layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            conv_layers.append(nn.BatchNorm2d(out_channels))
+            conv_layers.append(nn.ReLU())
+            in_channels = out_channels
+            out_channels *= 2
+        
+        self.conv_layers = nn.Sequential(*conv_layers)
+        
+        # Adaptive average pooling and flattening
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Classifier layers
+        classifier_layers = [
+            nn.Linear(out_channels // 2, 128),
+            nn.ReLU(),
+            nn.Dropout(DROPOUT_RATE),
+            nn.Linear(128, num_classes)
+        ]
+        self.classifier = nn.Sequential(*classifier_layers)
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Data loading
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=BATCH_SIZE)
+
+# Limiting the training dataset for faster iteration
+subset_size = 15000
+subset_indices = list(range(min(subset_size, len(train_loader.dataset))))
+train_subset = torch.utils.data.Subset(train_loader.dataset, subset_indices)
+train_loader = torch.utils.data.DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True)
+
+# Limiting the validation dataset for faster evaluation
+val_subset_indices = list(range(15000, min(20000, len(train_loader.dataset))))
+val_subset = torch.utils.data.Subset(train_loader.dataset, val_subset_indices)
+val_loader = torch.utils.data.DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False)
+
+# Model, optimizer, and loss function
+model = BirdCLEFModel(num_classes=NUM_CLASSES).to('cuda')
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+criterion = nn.BCELoss()
+
+# Training loop
+all_train_losses = []
+for epoch in range(NUM_EPOCHS):
+    model.train()
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        all_train_losses.append(loss.item())
+        torch.cuda.empty_cache()
+
+# Evaluation
+model.eval()
+all_preds = []
+all_labels = []
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        outputs = model(inputs)
+        all_preds.extend(outputs.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Compute AUC
+from sklearn.metrics import roc_auc_score
+all_preds = np.array(all_preds)
+all_labels = np.array(all_labels)
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Save metrics and model
+metrics = {
+    "final_train_loss": np.mean(all_train_losses),
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": NUM_EPOCHS,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_subset),
+    "eval_samples": len(val_subset)
+}
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+print("METRICS: " + json.dumps(metrics))
+
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation:
+
+1. **Imports**: The code starts with the required imports and sets up the environment for training.
+2. **Hyperparameters**: Hyperparameters are defined based on the iteration number (6 in this case). The batch size, learning rate, number of convolutional layers, and dropout rate are chosen systematically to explore different configurations.
+3. **Model Architecture**: A CNN model is defined with a specified number of convolutional layers, each followed by batch normalization and ReLU activation. Adaptive average pooling ensures robust dimension handling, and the classifier consists of fully connected layers with dropout for regularization.
+4. **Data Loading**: The `get_dataloader` function is used to create a DataLoader. Training and validation datasets are limited to 15000 samples each for faster iteration.
+5. **Training Loop**: The model is trained using Adam optimizer and BCELoss. Losses are tracked, and GPU memory is cleared after each batch to prevent fragmentation.
+6. **Evaluation**: The model is evaluated on the validation set, and AUC is computed using `roc_auc_score`.
+7. **Metrics & Model Saving**: Training metrics are saved to a JSON file, and the model's state dictionary is saved for future use.

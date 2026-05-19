@@ -1,0 +1,191 @@
+### Analysis of Previous Experiment
+
+#### 1. What Worked Well?
+
+- **Data Loading and Augmentation**: The use of `build_train_val_dataloaders` with augmentation enabled seems to be correctly implemented, as per the provided instructions.
+  
+- **Model Architecture**: The model architecture adheres to the specified structure: `(Conv→BatchNorm2d→Activation)→Pool→Flatten→(Linear only)`. This ensures that there are no issues related to dimension handling and the absence of `BatchNorm1d` in the classifier.
+
+- **Training Loop Structure**: The basic training loop structure is correct, with loss reporting per batch and GPU memory management via `torch.cuda.empty_cache()` after each batch.
+
+#### 2. What Needs Improvement?
+
+- **Timeout Issues**: The latest experiment timed out after approximately 1000 seconds (16 minutes). This could be due to several reasons:
+  - Long training times per epoch.
+  - Inefficient data handling or augmentation.
+  - Insufficient GPU memory, leading to frequent OOM errors and fallbacks.
+
+- **Overfitting**: The model might be overfitting given the previous best AUC score of 0.7602 is relatively low compared to potential performance gains from better hyperparameters or architectural adjustments.
+
+- **Hyperparameter Selection**: The current set of hyperparameters (e.g., batch size, learning rate, architecture depth) may not be optimal for this dataset and task.
+
+- **Early Stopping Implementation**: There might be issues with the Early Stopping implementation if it's not being triggered correctly, leading to unnecessary training time.
+
+#### 3. Specific Changes for the Next Iteration
+
+##### a. Hyperparameter Tuning
+Given the iteration number (22) and the provided heuristic, we should:
+- **Batch Size**: Use `batch_size = 16` (Iteration % 3 == 1).
+- **Learning Rate**: Use `lr = 0.0001` (Iteration % 3 == 1).
+- **Architecture Depth**: Use 3 Conv layers.
+- **Dropout and Regularization**:
+  - Dropout: `p=0.2`
+  - L2 regularization (`weight_decay`): `0.0001`
+
+##### b. Model Architecture
+Ensure the architecture follows the provided structure with appropriate adjustments:
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species=206):
+        super(BirdCLEFModel, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),  # Added third layer
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Dropout(p=0.2),  # Added dropout for regularization
+            nn.Linear(128, num_species)  # Dynamically sized final layer
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+```
+
+##### c. Training Loop Improvements
+Implement the following improvements:
+- **Early Stopping**: Monitor validation AUC and stop training if it doesn't improve for 5 consecutive epochs.
+- **OOM Handling**: Gracefully handle OOM errors by reducing batch size and retrying.
+
+```python
+import torch.optim as optim
+from sklearn.metrics import roc_auc_score
+import json
+import random
+
+# Hyperparameters
+epochs = 40
+batch_size = 16
+lr = 0.0001
+weight_decay = 0.0001
+num_species = 206
+
+# Model, optimizer, and loss function
+model = BirdCLEFModel(num_species=num_species).to('cuda')
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+# Dataloaders
+DATA_DIR = "/home/carme/birdclef-data"
+train_loader, val_loader = build_train_val_dataloaders(DATA_DIR, batch_size=batch_size)
+
+# Training loop
+best_auc = 0.0
+no_improve_epochs = 0
+
+for epoch in range(epochs):
+    model.train()
+    total_loss = 0.0
+    
+    for batch_idx, (inputs, labels) in enumerate(train_loader):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+        torch.cuda.empty_cache()  # Clear GPU cache
+    
+    avg_train_loss = total_loss / len(train_loader)
+    print(f'Epoch [{epoch+1}/{epochs}], Train Loss: {avg_train_loss:.4f}')
+    
+    # Validation
+    model.eval()
+    all_preds, all_labels = [], []
+    
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            preds = (outputs > 0.5).float().cpu().numpy()
+            labels = labels.float().cpu().numpy()
+            
+            all_preds.extend(preds)
+            all_labels.extend(labels)
+    
+    auc_score = roc_auc_score(all_labels, all_preds, average='weighted')
+    print(f'Validation AUC: {auc_score:.4f}')
+    
+    # Early stopping
+    if auc_score > best_auc:
+        best_auc = auc_score
+        no_improve_epochs = 0
+        torch.save(model.state_dict(), 'model.pt')  # Save the model
+    else:
+        no_improve_epochs += 1
+    
+    if no_improve_epochs >= 5:
+        print("Early stopping triggered.")
+        break
+
+# Metrics
+final_train_loss = avg_train_loss
+num_params = sum(p.numel() for p in model.parameters())
+training_samples = len(train_loader.dataset)
+eval_samples = len(val_loader.dataset)
+
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": auc_score,
+    "num_params": num_params,
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size,
+    "training_samples": training_samples,
+    "eval_samples": eval_samples
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+##### d. Data Handling and Augmentation
+Ensure that data loading and augmentation are optimized to avoid bottlenecks:
+- Use efficient data loaders (e.g., `torch.utils.data.DataLoader` with appropriate settings).
+- Ensure audio files are preprocessed efficiently (e.g., normalization, trimming).
+
+##### e. OOM Handling in Training Loop
+Implement robust OOM handling within the training loop to ensure smooth execution:
+
+```python
+try:
+    # Existing training loop code
+except RuntimeError as e:
+    if 'out of memory' in str(e):
+        print('CUDA out of memory. Trying to recover.')
+        torch.cuda.empty_cache()
+        for obj in gc.get_objects():
+            try:
+                if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                    del obj
+            except:
+                pass
+        torch.cuda.empty_cache()
+    else:
+        raise e
+```
+
+By implementing these changes, we aim to reduce training time, prevent OOM errors, and potentially improve the model's AUC score.

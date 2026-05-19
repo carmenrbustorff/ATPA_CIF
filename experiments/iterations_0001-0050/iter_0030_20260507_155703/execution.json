@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0030_20260507_155703/train.py\", line 67, in <module>\n    outputs = model(inputs)\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/home/carme/ATPA_CIF/experiments/iter_0030_20260507_155703/train.py\", line 29, in forward\n    x = F.relu(self.conv1(x))\n        ^\nNameError: name 'F' is not defined\n",
+  "timed_out": false,
+  "duration_s": 5.49
+}

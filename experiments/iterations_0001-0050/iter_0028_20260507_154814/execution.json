@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "\nEpoch 1/2:   0%|          | 0/157 [00:00<?, ?it/s]\nEpoch 1/2:   0%|          | 0/157 [00:01<?, ?it/s]\nTraceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0028_20260507_154814/train.py\", line 70, in <module>\n    output = model(data)\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/home/carme/ATPA_CIF/experiments/iter_0028_20260507_154814/train.py\", line 37, in forward\n    x = self.pool(F.relu(self.conv1(x)))\n                  ^\nNameError: name 'F' is not defined\n",
+  "timed_out": false,
+  "duration_s": 5.08
+}

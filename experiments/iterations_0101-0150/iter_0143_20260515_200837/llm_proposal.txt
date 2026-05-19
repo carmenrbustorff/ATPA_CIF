@@ -1,0 +1,170 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+
+# Define the CNN model architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species=206):
+        super(BirdCLEFModel, self).__init__()
+        
+        # Convolutional layers with BatchNorm and ReLU activation
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        )
+        
+        # Adaptive average pooling for robust dimension handling
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Fully connected classifier with dropout and L2 regularization
+        self.classifier = nn.Sequential(
+            nn.Linear(64, 128), nn.ReLU(), nn.Dropout(p=0.5),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Function to load and train the model
+def train_model(iteration_number, DATA_DIR, METADATA_FILE, NUM_EPOCHS=20, EARLY_STOPPING_PATIENCE=5):
+    # Determine hyperparameters based on iteration number
+    if iteration_number % 3 == 0:
+        batch_size = 8
+        lr = 0.001
+        num_convs = 2
+        dropout_rate = 0.0
+        weight_decay = 0.0
+    elif iteration_number % 3 == 1:
+        batch_size = 16
+        lr = 0.0001
+        num_convs = 3
+        dropout_rate = 0.2
+        weight_decay = 0.0001
+    else:
+        batch_size = 32
+        lr = 0.00001
+        num_convs = 4
+        dropout_rate = 0.5
+        weight_decay = 0.001
+
+    # Build data loaders
+    train_loader, val_loader = build_train_val_dataloaders(
+        metadata_csv=METADATA_FILE,
+        audio_dir=DATA_DIR,
+        batch_size=batch_size,
+        augment=True,      # Enable augmentation for training
+        val_split=0.2,     # 80/20 split
+    )
+
+    # Initialize the model, loss function, and optimizer
+    model = BirdCLEFModel(num_species=NUM_EPOCHS)
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    # Move model to CUDA if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    # Training loop
+    best_val_auc = 0.0
+    patience_counter = 0
+
+    for epoch in range(NUM_EPOCHS):
+        model.train()
+        train_loss = 0.0
+        
+        for batch_idx, (inputs, labels) in enumerate(tqdm(train_loader)):
+            inputs, labels = inputs.to(device), labels.to(device)
+            
+            try:
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, labels.float())
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+                
+                # Clear cache and reduce batch size if OOM
+                torch.cuda.empty_cache()
+
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    print("OOM Error: Reducing batch size and retrying")
+                    torch.cuda.empty_cache()
+                    batch_size //= 2
+                    train_loader, val_loader = build_train_val_dataloaders(
+                        metadata_csv=METADATA_FILE,
+                        audio_dir=DATA_DIR,
+                        batch_size=batch_size,
+                        augment=True, 
+                        val_split=0.2, 
+                    )
+                    continue
+
+        # Validation step
+        model.eval()
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in tqdm(val_loader):
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                preds = (outputs > 0.5).float().cpu().numpy()
+                all_preds.extend(preds)
+                all_labels.extend(labels.cpu().numpy())
+
+        # Calculate AUC
+        val_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+        
+        print(f"Epoch {epoch+1}/{NUM_EPOCHS}, Train Loss: {train_loss/(batch_idx+1)}, Val AUC: {val_auc}")
+        
+        # Early stopping
+        if val_auc > best_val_auc:
+            best_val_auc = val_auc
+            patience_counter = 0
+            torch.save(model.state_dict(), 'model.pt')
+        else:
+            patience_counter += 1
+            if patience_counter >= EARLY_STOPPING_PATIENCE:
+                print("Early stopping triggered.")
+                break
+
+    # Save metrics
+    metrics = {
+        "final_train_loss": train_loss/(batch_idx+1),
+        "final_auc": best_val_auc,
+        "num_params": sum(p.numel() for p in model.parameters()),
+        "epochs_trained": epoch + 1,
+        "batch_size": batch_size,
+        "training_samples": len(train_loader.dataset),
+        "eval_samples": len(val_loader.dataset)
+    }
+    
+    with open('metrics.json', 'w') as f:
+        json.dump(metrics, f)
+
+    print("METRICS: " + json.dumps(metrics))
+
+# Example usage
+DATA_DIR = "/home/carme/birdclef-data"
+METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+train_model(iteration_number=143, DATA_DIR=DATA_DIR, METADATA_FILE=METADATA_FILE)
+```
+
+### Key Points:
+- **Model Architecture**: The model includes a series of convolutional layers with batch normalization and ReLU activation. It uses adaptive average pooling to flatten the output before passing it through fully connected layers.
+- **Hyperparameter Tuning**: Hyperparameters such as learning rate, batch size, number of convolutional layers, dropout rate, and weight decay are systematically varied based on the iteration number.
+- **Training Loop**: The loop includes error handling for out-of-memory errors by reducing the batch size and retrying the training step. It also implements early stopping to prevent overfitting.
+- **Validation and Metrics**: After training, the model's performance is evaluated using AUC, which is saved in a JSON file along with other relevant metrics.
+
+This setup allows for rapid experimentation and hyperparameter tuning, making it suitable for small-scale, fast iterations to find optimal configurations.
