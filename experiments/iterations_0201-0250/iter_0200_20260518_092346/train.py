@@ -214,8 +214,8 @@ metrics = {
     "num_params": sum(p.numel() for p in model.parameters()),
     "epochs_trained": epoch + 1,
     "batch_size": batch_size, 
-    "training_samples": len(train_loader.dataset), 
-    "eval_samples": len(val_loader.dataset) 
+    "training_samples": len(train_loader.dataset), #type: ignore
+    "eval_samples": len(val_loader.dataset) #type: ignore
 }
 
 with open('metrics.json', 'w') as f:
