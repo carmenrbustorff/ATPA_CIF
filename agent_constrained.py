@@ -5,7 +5,7 @@ unchanging scaffold. Contrast with Carmen's unconstrained agent (LLM writes
 full training code each iteration).
 
 Usage:
-    python agent_constrained.py --iterations 10 --llm qwen3-coder
+    python agent_constrained.py --iterations 1 --llm qwen2.5-coder:14b
 """
 import argparse
 import json
@@ -26,7 +26,7 @@ PROMPT_TEMPLATE = """You are an ML research assistant. Task: BirdCLEF 2026 bird 
 
 A training script `train.py` exists with these CLI arguments:
 - --model: "simple_cnn_torch" or "efficientnet_torch"
-- --epochs: int 1-15
+- --epochs: int 1-5
 - --batch-size: 8, 16, or 32
 - --lr: float 1e-5 to 1e-2
 - --weight-decay: float 0.0 to 1e-3

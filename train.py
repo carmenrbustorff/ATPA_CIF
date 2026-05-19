@@ -5,18 +5,21 @@ Usage:
     python train.py --model efficientnet_torch --epochs 10 --batch-size 16 --lr 5e-4 --augment
 """
 import argparse, json, time, traceback
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler, autocast
+from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 
+from data_loader import BirdCLEFDataset, METADATA_CSV, AUDIO_DIR, NUM_WORKERS
 from models import build_simple_cnn_torch, build_efficientnet_torch
 from config import NUM_SPECIES
-from data_loader import build_train_val_dataloaders
 
 
 def parse_args():
@@ -33,11 +36,22 @@ def parse_args():
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
     p.add_argument("--llm-name", default="manual")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--use-cache", action="store_true", 
-                  help="Use precomputed cached spectrograms (requires cache_spectrograms.py first)")
-    p.add_argument("--cache-dir", type=Path, default=Path("/tmp/birdclef-specs"),
-                  help="Directory with cached spectrograms (if --use-cache is set)")
     return p.parse_args()
+
+
+def stratified_split(dataset, val_split, seed):
+    """Stratified split by primary label. Drops classes with <2 samples."""
+    labels = [s[1] for s in dataset._samples]
+    counts = Counter(labels)
+    valid_indices = [i for i, l in enumerate(labels) if counts[l] >= 2]
+    valid_labels = [labels[i] for i in valid_indices]
+    train_local, val_local = train_test_split(
+        list(range(len(valid_indices))), test_size=val_split,
+        stratify=valid_labels, random_state=seed,
+    )
+    train_idx = [valid_indices[i] for i in train_local]
+    val_idx = [valid_indices[i] for i in val_local]
+    return train_idx, val_idx, len(labels) - len(valid_indices)
 
 
 def to_multilabel(y, num_classes):
@@ -57,42 +71,25 @@ def build_model(name, num_classes):
 def forward_batch(model, x, expand_rgb):
     if expand_rgb:
         x = x.expand(-1, 3, -1, -1)
-    return model(x)  # Returns logits
+    return model(x)
 
 
 @torch.no_grad()
 def validate(model, loader, criterion, device, num_classes, expand_rgb):
     model.eval()
-    losses, y_true_list, y_pred_list = [], [], []
+    losses, ys, ps = [], [], []
     for x, y in loader:
         x = x.to(device, non_blocking=True)
-        y_device = y.to(device)
-        y_multilabel = to_multilabel(y_device, num_classes)
-        with autocast(device_type=device.type):
-            logits = forward_batch(model, x, expand_rgb)  # logits
-            loss = criterion(logits, y_multilabel)  # BCEWithLogitsLoss
+        y = to_multilabel(y.to(device), num_classes)
+        with autocast():
+            logits = forward_batch(model, x, expand_rgb)
+            loss = criterion(logits, y)
         losses.append(loss.item())
-        y_true_list.append(y.cpu().numpy())  # store original class indices
-        # Apply sigmoid to get probabilities for AUC
-        probs = torch.sigmoid(logits).float().cpu().numpy()
-        y_pred_list.append(probs)
-    
-    y_true_idx = np.concatenate(y_true_list).astype(int)  # shape: (n_samples,)
-    y_prob = np.concatenate(y_pred_list)  # shape: (n_samples, num_classes)
-    
-    # Convert class indices to one-hot encoding
-    y_true_onehot = np.zeros((y_true_idx.shape[0], num_classes))
-    y_true_onehot[np.arange(y_true_idx.shape[0]), y_true_idx] = 1.0
-    
-    # Only compute AUC for classes that appear in validation set
-    present = y_true_onehot.sum(axis=0) > 0
-    if present.sum() == 0:
-        auc = 0.0
-    else:
-        try:
-            auc = roc_auc_score(y_true_onehot[:, present], y_prob[:, present], average="macro")
-        except (ValueError, ZeroDivisionError):
-            auc = 0.0
+        ys.append(y.cpu().numpy())
+        ps.append(torch.sigmoid(logits).float().cpu().numpy())
+    y_true, y_prob = np.concatenate(ys), np.concatenate(ps)
+    present = y_true.sum(axis=0) > 0
+    auc = roc_auc_score(y_true[:, present], y_prob[:, present], average="macro")
     return float(np.mean(losses)), float(auc)
 
 
@@ -103,9 +100,9 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, num_cla
         x = x.to(device, non_blocking=True)
         y = to_multilabel(y.to(device), num_classes)
         optimizer.zero_grad(set_to_none=True)
-        with autocast(device_type=device.type):
-            logits = forward_batch(model, x, expand_rgb)  # logits
-            loss = criterion(logits, y)  # BCEWithLogitsLoss
+        with autocast():
+            logits = forward_batch(model, x, expand_rgb)
+            loss = criterion(logits, y)
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -136,38 +133,24 @@ def main():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device: {device}")
 
-        # Guard against wrong dataset path
-        from data_loader import METADATA_CSV, AUDIO_DIR
-        if not METADATA_CSV.exists():
-            raise FileNotFoundError(
-                f"Metadata CSV not found: {METADATA_CSV}\n"
-                "Check DATA_ROOT in data_loader.py points to the correct dataset."
-            )
-        if not AUDIO_DIR.exists():
-            raise FileNotFoundError(
-                f"Audio directory not found: {AUDIO_DIR}\n"
-                "Check DATA_ROOT in data_loader.py points to the correct dataset."
-            )
+        full = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR, augment=args.augment)
+        train_idx, val_idx, dropped = stratified_split(full, args.val_split, args.seed)
+        train_set = Subset(full, train_idx)
+        val_set = Subset(full, val_idx)
+        print(f"Train: {len(train_idx)}  Val: {len(val_idx)}  Dropped: {dropped}  Classes: {NUM_SPECIES}")
 
-        # Load dataset (cached or on-the-fly)
-        train_loader, val_loader = build_train_val_dataloaders(
-            val_split=args.val_split,
-            batch_size=args.batch_size,
-            augment=args.augment,
-            random_state=args.seed,
-            use_cache=args.use_cache,
-            cache_dir=args.cache_dir,
-        )
-        print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  Classes: {NUM_SPECIES}")
+        loader_kw = dict(num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
+        train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, **loader_kw)
+        val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, **loader_kw)
 
         model = build_model(args.model, NUM_SPECIES).to(device)
         expand_rgb = (args.model == "efficientnet_torch")
-        criterion = nn.BCEWithLogitsLoss()  # logits input + sigmoid internally
+        criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr, weight_decay=args.weight_decay
         )
-        scaler = GradScaler(device=device.type, enabled=(device.type == "cuda"))
+        scaler = GradScaler(enabled=(device.type == "cuda"))
 
         best_auc = 0.0
         patience_counter = 0

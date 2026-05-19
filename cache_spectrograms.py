@@ -1,117 +1,103 @@
+"""Build a spectrogram cache for BirdCLEF training audio.
+
+This script reuses BirdCLEFDataset's waveform-to-spectrogram path so the
+cached .npy files match the training-time preprocessing exactly.
 """
-Precompute and cache mel-spectrograms to disk for fast training.
+from __future__ import annotations
 
-Usage:
-    python cache_spectrograms.py --output-dir /tmp/birdclef-specs --num-workers 4
-
-This generates .npz files on disk that can be loaded ~100x faster than
-recomputing spectrograms from OGG files during training.
-"""
-
-import argparse
-import sys
+import logging
+import time
+from functools import partial
+from multiprocessing import Pool
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from typing import Iterable, Optional, Tuple
+
 import numpy as np
-import pandas as pd
-import torch
-import librosa
 from tqdm import tqdm
 
-from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION
-from data_loader import METADATA_CSV, AUDIO_DIR, F_MIN, F_MAX, TOP_DB, SAMPLE_RATE, CLIP_SAMPLES
+from data_loader import AUDIO_DIR, DATA_ROOT, BirdCLEFDataset, METADATA_CSV, SPECTROGRAM_CACHE_DIR
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
+NUM_WORKERS = 2
+FAILURES_LOG = Path("cache_failures.txt")
+AUDIO_SUFFIXES = {".ogg"}
+
+_worker_dataset: Optional[BirdCLEFDataset] = None
 
 
-def compute_spectrogram(audio_path, sample_rate=SAMPLE_RATE, clip_samples=CLIP_SAMPLES,
-                       n_mels=N_MELS, n_fft=N_FFT, hop_length=HOP_LENGTH,
-                       f_min=F_MIN, f_max=F_MAX, top_db=TOP_DB):
-    """Load OGG and compute normalized mel-spectrogram."""
+def _init_worker() -> None:
+    global _worker_dataset
+    _worker_dataset = BirdCLEFDataset(
+        metadata_csv=METADATA_CSV,
+        audio_dir=AUDIO_DIR,
+        spectrogram_dir=SPECTROGRAM_CACHE_DIR,
+        use_cache=False,
+        augment=False,
+    )
+
+
+def _cache_path_for(audio_path: Path) -> Path:
+    return SPECTROGRAM_CACHE_DIR / audio_path.relative_to(AUDIO_DIR).with_suffix(".npy")
+
+
+def _process_one(audio_path_str: str) -> Tuple[str, bool, str]:
+    if _worker_dataset is None:
+        raise RuntimeError("Worker dataset not initialised")
+
+    audio_path = Path(audio_path_str)
+    cache_path = _cache_path_for(audio_path)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if cache_path.exists():
+        return (str(audio_path), True, "skipped")
+
     try:
-        # Load audio
-        audio, orig_sr = librosa.load(str(audio_path), sr=None, mono=False)
-        if audio.ndim == 1:
-            audio = audio[None, :]
-        
-        # Resample if needed
-        if orig_sr != sample_rate:
-            resampled = []
-            for ch in audio:
-                resampled_ch = librosa.resample(ch.astype(np.float32), orig_sr, sample_rate)
-                resampled.append(resampled_ch)
-            audio = np.stack(resampled, axis=0)
-        
-        # Extract center crop
-        total_samples = audio.shape[-1]
-        if total_samples >= clip_samples:
-            start = (total_samples - clip_samples) // 2
-            audio_window = audio[:, start : start + clip_samples]
+        waveform = _worker_dataset._load_waveform(audio_path)
+        if not isinstance(waveform, np.ndarray):
+            spectrogram_tensor = _worker_dataset._waveform_to_melspec(waveform)
+            spectrogram = spectrogram_tensor.squeeze(0).cpu().numpy().astype(np.float32, copy=False)
         else:
-            pad = clip_samples - total_samples
-            audio_window = np.pad(audio, ((0, 0), (0, pad)), mode="constant")
-        
-        # Mix to mono
-        if audio_window.shape[0] > 1:
-            audio_window = audio_window.mean(axis=0, keepdims=True)
-        
-        # Compute mel-spectrogram
-        y = audio_window.squeeze(0).astype(np.float32)
-        mel = librosa.feature.melspectrogram(
-            y=y, sr=sample_rate, n_fft=n_fft, hop_length=hop_length,
-            n_mels=n_mels, fmin=f_min, fmax=f_max, power=2.0,
-        )
-        log_mel = librosa.power_to_db(mel, top_db=top_db)  # range [-top_db, 0]
-        log_mel = (log_mel + top_db) / top_db  # normalise to [0, 1]
-        spec = log_mel.astype(np.float32)[None, :, :]  # add channel dim
-        
-        return spec
-    except Exception as e:
-        print(f"  ERROR loading {audio_path}: {e}", file=sys.stderr)
-        return None
+            spectrogram = waveform.astype(np.float32, copy=False)
+
+        np.save(cache_path, spectrogram)
+        return (str(audio_path), True, "saved")
+    except Exception as exc:  # noqa: BLE001
+        return (str(audio_path), False, f"{type(exc).__name__}: {exc}")
 
 
-def cache_spectrograms(metadata_csv, audio_dir, output_dir, num_workers=4):
-    """Precompute and cache all spectrograms."""
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    df = pd.read_csv(metadata_csv)
-    print(f"Caching {len(df)} spectrograms to {output_dir}...")
-    
-    def process_row(idx, row):
-        audio_path = Path(audio_dir) / row["filename"]
-        spec = compute_spectrogram(audio_path)
-        if spec is not None:
-            # Use a safe filename (replace path separators)
-            safe_name = str(row["filename"]).replace("/", "_").replace(".", "_")
-            output_path = output_dir / f"{safe_name}.npz"
-            np.savez_compressed(output_path, spectrogram=spec)
-            return (idx, True)
-        return (idx, False)
-    
-    successful = 0
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(process_row, idx, row)
-            for idx, row in df.iterrows()
-        ]
-        for future in tqdm(futures, total=len(df), desc="Caching"):
-            try:
-                idx, success = future.result(timeout=60)
-                if success:
-                    successful += 1
-            except Exception as e:
-                print(f"  Failed: {e}", file=sys.stderr)
-    
-    print(f"Cached {successful}/{len(df)} spectrograms successfully")
-    return successful
+def _iter_audio_files() -> Iterable[Path]:
+    for path in sorted(AUDIO_DIR.rglob("*")):
+        if path.is_file() and path.suffix.lower() in AUDIO_SUFFIXES:
+            yield path
+
+
+def main() -> None:
+    start = time.time()
+    audio_files = list(_iter_audio_files())
+    logger.info("Found %d audio files under %s", len(audio_files), AUDIO_DIR)
+    logger.info("Writing cache to %s", SPECTROGRAM_CACHE_DIR)
+
+    failures: list[str] = []
+    processed = 0
+
+    with Pool(processes=NUM_WORKERS, initializer=_init_worker) as pool:
+        for _, ok, message in tqdm(pool.imap_unordered(_process_one, map(str, audio_files)), total=len(audio_files)):
+            processed += 1
+            if not ok and message != "skipped":
+                failures.append(message)
+
+    if failures:
+        FAILURES_LOG.write_text("\n".join(failures) + "\n")
+        logger.info("Logged %d failures to %s", len(failures), FAILURES_LOG)
+    elif FAILURES_LOG.exists():
+        FAILURES_LOG.unlink()
+
+    elapsed = time.time() - start
+    logger.info("Completed %d files in %.1f seconds", processed, elapsed)
+    print(f"Completed {processed} files in {elapsed:.1f} seconds")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", default="/tmp/birdclef-specs",
-                       help="Directory to cache spectrograms (default: /tmp/birdclef-specs)")
-    parser.add_argument("--num-workers", type=int, default=4,
-                       help="Number of worker threads (default: 4)")
-    args = parser.parse_args()
-    
-    cache_spectrograms(METADATA_CSV, AUDIO_DIR, args.output_dir, args.num_workers)
+    main()
