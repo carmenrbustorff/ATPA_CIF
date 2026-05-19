@@ -1,0 +1,104 @@
+To tackle the BirdCLEF+ 2026 Track B challenge with the constraints of small-scale, fast iterations, we need a lightweight yet effective model architecture. Given that the task is multi-label classification and involves mel-spectrograms, we can leverage pre-trained models like EfficientNet or MobileNet, which are known for their efficiency and effectiveness on image-like data.
+
+Here's a proposal using a modified version of `EfficientNetB0` with a small adaptation to handle multi-label classification. This model will be implemented in TensorFlow/Keras.
+
+### Model Architecture
+1. **Base Model**: We use `EfficientNetB0` pre-trained on ImageNet.
+2. **Global Average Pooling Layer**: To reduce the spatial dimensions and maintain important features.
+3. **Dropout Layer**: For regularization to prevent overfitting.
+4. **Dense Output Layer**: With 234 units (one for each bird species) and a sigmoid activation function to handle multi-label classification.
+
+### Data Loading Assumptions
+- Mel-spectrograms are preprocessed and saved in a directory structure that can be easily loaded using `tf.keras.preprocessing.image_dataset_from_directory`.
+- Each subdirectory within the main data directory represents a different bird species, but since this is multi-label, we need to handle the labels appropriately.
+- Labels are provided in a CSV file with filenames and one-hot encoded species presence.
+
+### Training Loop
+- We will use binary cross-entropy loss since it's suitable for multi-label classification.
+- The model will be trained using Adam optimizer with learning rate scheduling for better convergence.
+
+```python
+import tensorflow as tf
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dropout, Dense
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+import pandas as pd
+
+# Load and preprocess data
+def load_data(data_dir, labels_file):
+    # Assuming labels_file is a CSV with columns ['filename', 'species_1', ..., 'species_234']
+    labels_df = pd.read_csv(labels_file)
+    
+    # Create dataset from directory
+    ds = tf.keras.preprocessing.image_dataset_from_directory(
+        data_dir,
+        labels='inferred',
+        label_mode=None,  # No labels inferred from directory structure, we use our CSV
+        image_size=(128, 128),  # Adjust size as needed
+        batch_size=32
+    )
+    
+    # Map filenames to labels
+    def map_labels(filename):
+        filename = tf.strings.split(tf.strings.regex_replace(filename, data_dir + '/', ''), sep='/')[0]
+        label = tf.convert_to_tensor(labels_df[labels_df['filename'] == filename].values[0][1:])
+        return label
+    
+    ds = ds.map(lambda x: (x, map_labels(x.filepath)))
+    
+    # Shuffle and split into train/val
+    val_size = int(0.2 * len(ds))
+    train_ds = ds.skip(val_size).shuffle(buffer_size=1024)
+    val_ds = ds.take(val_size)
+    
+    return train_ds, val_ds
+
+# Define the model
+def create_model(num_classes):
+    base_model = EfficientNetB0(weights='imagenet', include_top=False, input_shape=(128, 128, 3))
+    x = GlobalAveragePooling2D()(base_model.output)
+    x = Dropout(0.5)(x)
+    predictions = Dense(num_classes, activation='sigmoid')(x)
+    
+    model = Model(inputs=base_model.input, outputs=predictions)
+    return model
+
+# Training the model
+def train_model(train_ds, val_ds, num_classes):
+    model = create_model(num_classes)
+    model.compile(optimizer=Adam(learning_rate=0.001),
+                  loss='binary_crossentropy',
+                  metrics=['AUC'])
+    
+    # Callbacks for learning rate scheduling and early stopping
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    
+    history = model.fit(train_ds,
+                        validation_data=val_ds,
+                        epochs=50,
+                        callbacks=[reduce_lr, early_stopping])
+    
+    return model, history
+
+# Example usage
+data_dir = '/home/carme/birdclef-data'
+labels_file = 'path_to_labels.csv'  # Update with actual path to labels CSV
+num_classes = 234
+
+train_ds, val_ds = load_data(data_dir, labels_file)
+model, history = train_model(train_ds, val_ds, num_classes)
+
+# Evaluation (AUC score on validation set)
+val_auc = model.evaluate(val_ds)[1]
+print(f"Validation AUC: {val_auc}")
+```
+
+### Explanation
+- **Data Loading**: We load the data using `image_dataset_from_directory` and map filenames to labels from a CSV file.
+- **Model Architecture**: EfficientNetB0 is used with additional layers to adapt it for multi-label classification.
+- **Training Loop**: The model is trained with binary cross-entropy loss and evaluated on AUC, which is suitable for multi-label problems. We use callbacks to adjust the learning rate and stop training early if performance does not improve.
+
+This setup allows for rapid iterations while keeping computational costs low, making it ideal for the given constraints of the competition.

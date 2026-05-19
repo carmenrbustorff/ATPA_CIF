@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "Epoch 1, Loss: 0.0171\nEpoch 2, Loss: 0.0039\nEpoch 3, Loss: 0.0037\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0034_20260507_162939/train.py\", line 105, in <module>\n    all_preds = np.concatenate(all_preds)\nValueError: need at least one array to concatenate\n",
+  "timed_out": false,
+  "duration_s": 172.43
+}

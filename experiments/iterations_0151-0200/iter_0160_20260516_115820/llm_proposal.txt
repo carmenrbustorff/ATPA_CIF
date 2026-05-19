@@ -1,0 +1,170 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import soundfile as sf
+
+NUM_SPECIES = 206
+
+# Model Architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species=NUM_SPECIES, dropout_rate=0.2, num_layers=3):
+        super(BirdCLEFModel, self).__init__()
+        layers = []
+        
+        in_channels = 1
+        for i in range(num_layers - 1):
+            out_channels = 64 * (i + 1)
+            layers.append(nn.Conv2d(in_channels, out_channels, 3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_rate))
+            in_channels = out_channels
+        
+        out_channels = 64 * num_layers
+        layers.append(nn.Conv2d(in_channels, out_channels, 3, padding=1))
+        layers.append(nn.AdaptiveAvgPool2d(1))
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.fc = nn.Linear(out_channels, num_species)
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+# Training loop
+def train_model(iteration=1):
+    # Hyperparameters based on iteration number
+    if iteration % 3 == 0:
+        batch_size = 8
+        lr = 0.001
+        dropout_rate = 0.0
+        num_layers = 2
+    elif iteration % 3 == 1:
+        batch_size = 16
+        lr = 0.0001
+        dropout_rate = 0.2
+        num_layers = 3
+    else:
+        batch_size = 32
+        lr = 0.00001
+        dropout_rate = 0.5
+        num_layers = 4
+
+    # Data loading
+    train_loader, val_loader = build_train_val_dataloaders(batch_size=batch_size, augment=True)
+    
+    # Model setup
+    model = BirdCLEFModel(num_species=NUM_SPECIES, dropout_rate=dropout_rate, num_layers=num_layers).to('cuda')
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)
+    scaler = torch.cuda.amp.GradScaler()
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3, factor=0.5)
+
+    # Training parameters
+    max_epochs = 20
+    early_stopping_patience = 5
+    best_val_auc = 0.0
+    epochs_since_best = 0
+
+    for epoch in range(max_epochs):
+        model.train()
+        running_loss = 0.0
+        
+        for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            
+            optimizer.zero_grad()
+            with torch.cuda.amp.autocast("cuda"):
+                outputs = model(inputs)
+                loss = criterion(outputs, labels.float())
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            running_loss += loss.item() * inputs.size(0)
+
+        epoch_train_loss = running_loss / len(train_loader.dataset)
+        print(f"Epoch {epoch+1}, Train Loss: {epoch_train_loss:.4f}")
+
+        # Validation
+        model.eval()
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in tqdm(val_loader, desc="Validation"):
+                inputs, labels = inputs.to('cuda'), labels.to('cuda')
+                outputs = model(inputs)
+                
+                preds = torch.sigmoid(outputs).cpu().numpy()
+                all_preds.extend(preds)
+                all_labels.extend(labels.cpu().numpy())
+
+        from sklearn.metrics import roc_auc_score
+        one_hot_labels = np.eye(NUM_SPECIES)[all_labels]
+        val_auc = roc_auc_score(one_hot_labels, all_preds, average='weighted', multi_class='ovr')
+        print(f"Validation AUC: {val_auc:.4f}")
+
+        scheduler.step(val_auc)
+        
+        if val_auc > best_val_auc:
+            best_val_auc = val_auc
+            epochs_since_best = 0
+            torch.save(model.state_dict(), 'model.pt')
+        else:
+            epochs_since_best += 1
+
+        if epochs_since_best >= early_stopping_patience:
+            print("Early stopping triggered.")
+            break
+
+    # Metrics and final model save
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    metrics = {
+        "final_train_loss": epoch_train_loss,
+        "final_auc": best_val_auc,
+        "num_params": num_params,
+        "epochs_trained": epoch + 1,
+        "batch_size": batch_size,
+        "training_samples": len(train_loader.dataset),
+        "eval_samples": len(val_loader.dataset)
+    }
+    
+    with open('metrics.json', 'w') as f:
+        json.dump(metrics, f)
+    
+    print("METRICS: " + json.dumps(metrics))
+
+# Run training
+train_model(iteration=1)
+```
+
+### Explanation:
+
+1. **Model Architecture**:
+   - The `BirdCLEFModel` class defines a CNN with varying numbers of convolutional layers (`num_layers`) and dropout rates.
+   - It uses `AdaptiveAvgPool2d(1)` for robust flattening.
+
+2. **Training Loop**:
+   - Hyperparameters are selected based on the iteration number to systematically vary model depth, learning rate, and batch size.
+   - The training loop includes automatic mixed precision (`torch.cuda.amp`) for efficient training.
+   - Learning rate scheduling is implemented using `ReduceLROnPlateau` based on validation AUC.
+
+3. **Evaluation**:
+   - Validation AUC is computed using `roc_auc_score` with `multi_class='ovr'`.
+   - Early stopping is implemented to halt training if the validation AUC does not improve for a specified number of epochs.
+
+4. **Metrics and Saving**:
+   - Training metrics are saved to `metrics.json` as required.
+   - The final model state dictionary is saved to `model.pt`.
+
+This setup ensures rapid experimentation while adhering to the constraints provided.

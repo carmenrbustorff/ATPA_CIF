@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0101-0150/iter_0104_20260515_151854/train.py\", line 46, in <module>\n    model = SimpleModel(num_classes=NUM_SPECIES).to(device)\n                                    ^^^^^^^^^^^\nNameError: name 'NUM_SPECIES' is not defined\n",
+  "timed_out": false,
+  "duration_s": 4.82
+}

@@ -1,0 +1,1 @@
+{"final_train_loss": null, "final_auc": 0.5113240442200968, "num_params": 4387850, "epochs_trained": 3, "batch_size": 128, "training_samples": 5000, "eval_samples": 1000}

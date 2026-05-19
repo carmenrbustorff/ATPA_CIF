@@ -1,0 +1,146 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Define hyperparameters based on the iteration number (for this example, let's assume iter=2)
+iteration = 2
+batch_size_options = {0: 8, 1: 16, 2: 32}
+lr_options = {0: 0.001, 1: 0.0001, 2: 0.00001}
+conv_depth_options = {0: 2, 1: 3, 2: 4}
+dropout_options = [0.0, 0.2, 0.5]
+
+# Select hyperparameters based on the iteration number
+batch_size = batch_size_options[iteration % 3]
+lr = lr_options[iteration % 3]
+conv_depth = conv_depth_options[iteration % 3]
+dropout_rate = dropout_options[iteration // 3]  # Use integer division to select from dropout options
+
+NUM_SPECIES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Load DataLoader with a subset of data for faster iteration
+from torch.utils.data import Subset
+dataset = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size).dataset
+train_subset = Subset(dataset, range(min(15000, len(dataset))))
+train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+
+# Define the model architecture
+class BirdClassifier(nn.Module):
+    def __init__(self, num_species):
+        super(BirdClassifier, self).__init__()
+        channels = [32, 64, 128, 256][:conv_depth]
+        layers = []
+        
+        for i in range(len(channels) - 1):
+            layers.append(nn.Conv2d(channels[i], channels[i+1], kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(channels[i+1]))
+            layers.append(nn.ReLU())
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(channels[-1], 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize the model
+model = BirdClassifier(NUM_SPECIES)
+if torch.cuda.is_available():
+    model.to('cuda')
+
+# Define loss function and optimizer
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr)
+
+# Training loop
+epochs = 6
+for epoch in range(epochs):
+    model.train()
+    train_loss = 0.0
+    
+    for inputs, labels in train_loader:
+        if torch.cuda.is_available():
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+        
+        # Clear GPU cache to prevent fragmentation
+        torch.cuda.empty_cache()
+    
+    print(f'Epoch {epoch+1}, Train Loss: {train_loss/len(train_loader)}')
+
+# Evaluate the model on a validation subset
+val_subset = Subset(dataset, range(min(15000, len(dataset)), min(20000, len(dataset))))
+val_loader = torch.utils.data.DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        if torch.cuda.is_available():
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        outputs = model(inputs)
+        all_preds.extend(outputs.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Compute AUC
+from sklearn.metrics import roc_auc_score
+all_labels_np = np.array(all_labels)
+all_preds_np = np.array(all_preds)
+final_auc = roc_auc_score(all_labels_np, all_preds_np, average='weighted')
+
+# Save metrics to JSON
+metrics = {
+    "final_train_loss": train_loss/len(train_loader),
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epochs,
+    "batch_size": batch_size,
+    "training_samples": len(train_subset),
+    "eval_samples": len(val_subset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+
+# Save model checkpoint
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation:
+
+1. **Hyperparameter Selection**: The hyperparameters are selected based on the iteration number to systematically explore different configurations. This helps in finding good hyperparameters faster.
+
+2. **Model Architecture**: The model uses a series of convolutional layers followed by batch normalization and ReLU activation. The depth of the network is controlled by `conv_depth`, which varies with each iteration.
+
+3. **Training Loop**: The training loop runs for 6 epochs, as required. It includes moving the model and data to CUDA if available and reporting loss per epoch.
+
+4. **Evaluation**: The model is evaluated on a separate validation subset using AUC. This ensures that the evaluation metrics are not influenced by the training set.
+
+5. **Metrics and Model Saving**: Metrics including final training loss, AUC, number of parameters, and other relevant details are saved to a JSON file. The model's state dictionary is also saved for future use or submission.
+
+This approach ensures rapid experimentation while maintaining good practices in model evaluation and metric recording.

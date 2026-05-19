@@ -1,0 +1,25 @@
+{
+  "status": "failed_other",
+  "llm_name": "manual",
+  "model": "simple_cnn_torch",
+  "config": {
+    "model": "simple_cnn_torch",
+    "epochs": "2",
+    "batch_size": "16",
+    "lr": "0.001",
+    "weight_decay": "0.0",
+    "val_split": "0.2",
+    "augment": "False",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "20260513_125302",
+    "llm_name": "manual",
+    "seed": "42"
+  },
+  "best_val_auc": null,
+  "best_epoch": null,
+  "epochs_completed": 0,
+  "epoch_log": [],
+  "early_stopped": false,
+  "error_message": "RuntimeError: torch.nn.functional.binary_cross_entropy and torch.nn.BCELoss are unsafe to autocast.\nMany models use a sigmoid layer right before the binary cross entropy layer.\nIn this case, combine the two layers using torch.nn.functional.binary_cross_entropy_with_logits\nor torch.nn.BCEWithLogitsLoss.  binary_cross_entropy_with_logits and BCEWithLogits are\nsafe to autocast.\nTraceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/train.py\", line 175, in main\n    train_loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler,\n                                  device, NUM_SPECIES, expand_rgb)\n  File \"/home/carme/ATPA_CIF/train.py\", line 120, in train_one_epoch\n    loss = criterion(probs, y)\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/loss.py\", line 699, in forward\n    return F.binary_cross_entropy(\n           ~~~~~~~~~~~~~~~~~~~~~~^\n        input, target, weight=self.weight, reduction=self.reduction\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/functional.py\", line 3569, in binary_cross_entropy\n    return torch._C._nn.binary_cross_entropy(input, target, weight, reduction_enum)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: torch.nn.functional.binary_cross_entropy and torch.nn.BCELoss are unsafe to autocast.\nMany models use a sigmoid layer right before the binary cross entropy layer.\nIn this case, combine the two layers using torch.nn.functional.binary_cross_entropy_with_logits\nor torch.nn.BCEWithLogitsLoss.  binary_cross_entropy_with_logits and BCEWithLogits are\nsafe to autocast.\n"
+}

@@ -1,0 +1,189 @@
+Here is the proposed Python code for the Improved Model Architecture for the BirdCLEF+ 2026 competition (Track B). The code includes the model setup, loss function implementation, data augmentation, training loop, and validation metrics.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+import numpy as np
+from sklearn.metrics import roc_auc_score
+import timm
+import torchaudio.transforms as T
+
+# Constants
+NUM_SPECIES = 206
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+batch_size = 64
+max_epochs = 20
+learning_rate = 0.0001
+weight_decay = 1e-4
+
+# Custom Focal Loss
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        pt = torch.exp(-BCE_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+# Model Setup
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes=NUM_SPECIES):
+        super(BirdCLEFModel, self).__init__()
+        self.base_model = timm.create_model("efficientnet_b1", pretrained=True, in_chans=1, num_classes=0)
+        base_features = self.base_model.num_features
+        self.classifier = nn.Sequential(
+            nn.Linear(base_features, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        features = self.base_model(x)
+        logits = self.classifier(features)
+        return logits
+
+# Data Augmentation
+class GaussianNoiseInjection(object):
+    def __init__(self, noise_scale=0.03):
+        self.noise_scale = noise_scale
+
+    def __call__(self, waveform):
+        noise = torch.randn_like(waveform) * self.noise_scale
+        return waveform + noise
+
+# Load Data
+train_loader, val_loader = build_train_val_dataloaders(
+    batch_size=batch_size,
+    augment=True,
+    val_split=0.2,
+    num_workers=4,
+    pin_memory=True
+)
+
+# Initialize Model, Loss, Optimizer
+model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+criterion = FocalLoss(alpha=0.25, gamma=2.0)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=3)
+scaler = torch.cuda.amp.GradScaler()
+
+# Training Loop
+best_auc = 0.0
+early_stop_counter = 0
+
+for epoch in range(max_epochs):
+    model.train()
+    total_loss = 0.0
+    
+    for batch_idx, (waveforms, labels) in enumerate(train_loader):
+        optimizer.zero_grad()
+        
+        # Inject noise before converting to mel-spectrogram
+        waveform_noise_injector = GaussianNoiseInjection(noise_scale=0.03)
+        noisy_waveforms = waveform_noise_injector(waveforms.to(device))
+        
+        with torch.autocast(device_type="cuda"):
+            logits = model(noisy_waveforms)
+            loss = criterion(logits, labels.float().to(device))
+        
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        
+        total_loss += loss.item()
+
+    avg_train_loss = total_loss / len(train_loader)
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_true = []
+
+    with torch.no_grad():
+        for batch_idx, (waveforms, labels) in enumerate(val_loader):
+            logits = model(waveforms.to(device))
+            preds = torch.sigmoid(logits).cpu().numpy()
+            true_labels = labels.cpu().numpy()
+            
+            all_preds.append(preds)
+            all_true.append(true_labels)
+
+    y_true_multi = np.concatenate(all_true)
+    y_pred_multi = np.concatenate(all_preds)
+
+    col_sums = np.sum(y_true_multi, axis=0)
+    valid_indices = (col_sums > 0) & (col_sums < len(y_true_multi))
+    filtered_true = y_true_multi[:, valid_indices]
+    filtered_preds = y_pred_multi[:, valid_indices]
+
+    val_auc = roc_auc_score(filtered_true, filtered_preds, average='macro')
+    
+    print(f"Epoch {epoch + 1}/{max_epochs}, Train Loss: {avg_train_loss:.4f}, Val AUC: {val_auc:.4f}")
+    
+    scheduler.step(val_auc)
+    
+    if val_auc > best_auc:
+        best_auc = val_auc
+        early_stop_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        early_stop_counter += 1
+        if early_stop_counter >= 5:
+            print("Early stopping triggered.")
+            break
+
+# Save Metrics
+metrics = {
+    "final_train_loss": avg_train_loss,
+    "final_auc": best_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Explanation:
+
+1. **Model Architecture**:
+   - The `BirdCLEFModel` uses EfficientNet-B1 as the backbone.
+   - The classifier head is scaled up to 512 neurons and includes a dropout layer for regularization.
+
+2. **Loss Function**:
+   - Custom Focal Loss is implemented with parameters `alpha=0.25` and `gamma=2.0`.
+   - This helps in focusing on hard negatives and rare species, which are common issues in multi-label classification tasks.
+
+3. **Data Augmentation**:
+   - Gaussian noise injection is applied before converting the waveform to a mel-spectrogram.
+   - This simulates noisy soundscapes and helps mitigate domain shift.
+
+4. **Training Loop**:
+   - The loop includes gradient scaling for mixed precision training, learning rate scheduling based on validation AUC, and early stopping.
+
+5. **Validation & Metrics**:
+   - Validation AUC is calculated using only classes with both positive and negative samples.
+   - The best model checkpoint is saved when the validation AUC improves.
+
+This code should provide a robust starting point for further experimentation and improvement in the BirdCLEF+ 2026 competition.

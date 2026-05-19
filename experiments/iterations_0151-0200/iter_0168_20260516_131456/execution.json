@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-16 13:15:55,399 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:15:57,385 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:15:57,396 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 13:15:57,420 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 13:15:57,420 | INFO     | data_loader | Train: 20 batches  |  Val: 4 batches  (batch_size=256)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0168_20260516_131456/train.py\", line 65, in <module>\n    model = BirdClassifier(NUM_SPECIES).to('cuda')\n            ~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0168_20260516_131456/train.py\", line 47, in __init__\n    import timm\nModuleNotFoundError: No module named 'timm'\n",
+  "timed_out": false,
+  "duration_s": 8.67
+}

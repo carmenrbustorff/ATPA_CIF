@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "Epoch 1/2, Batch 1, Loss: 0.7033776044845581\nEpoch 1/2, Batch 2, Loss: 0.7017306685447693\nEpoch 1/2, Batch 3, Loss: 0.6996322870254517\nEpoch 1/2, Batch 4, Loss: 0.7005569934844971\nEpoch 1/2, Batch 5, Loss: 0.7001428008079529\nEpoch 1/2, Batch 6, Loss: 0.6985926628112793\nEpoch 1/2, Batch 7, Loss: 0.6986393332481384\nEpoch 1/2, Batch 8, Loss: 0.6974311470985413\nEpoch 1/2, Batch 9, Loss: 0.6991867423057556\nEpoch 1/2, Batch 10, Loss: 0.6957274079322815\n",
+  "stderr": "\n  0%|          | 0/1111 [00:00<?, ?it/s]\n  0%|          | 1/1111 [00:01<34:11,  1.85s/it]\n  0%|          | 4/1111 [00:01<07:02,  2.62it/s]\n  1%|          | 7/1111 [00:02<03:40,  5.02it/s]\n  1%|          | 9/1111 [00:02<02:55,  6.29it/s]\n  1%|          | 10/1111 [00:03<05:57,  3.08it/s]\n\n  0%|          | 0/1111 [00:00<?, ?it/s]\n  0%|          | 0/1111 [00:01<?, ?it/s]\nTraceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0071_20260513_165855/train.py\", line 131, in <module>\n    train_loader.dataset.set_mode('eval')  # Assuming dataset has a method to switch modes\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'BirdCLEFDataset' object has no attribute 'set_mode'\n",
+  "timed_out": false,
+  "duration_s": 9.72
+}

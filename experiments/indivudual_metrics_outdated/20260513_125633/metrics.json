@@ -1,0 +1,25 @@
+{
+  "status": "started",
+  "llm_name": "manual",
+  "model": "simple_cnn_torch",
+  "config": {
+    "model": "simple_cnn_torch",
+    "epochs": "2",
+    "batch_size": "16",
+    "lr": "0.001",
+    "weight_decay": "0.0",
+    "val_split": "0.2",
+    "augment": "False",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "20260513_125633",
+    "llm_name": "manual",
+    "seed": "42"
+  },
+  "best_val_auc": null,
+  "best_epoch": null,
+  "epochs_completed": 0,
+  "epoch_log": [],
+  "early_stopped": false,
+  "error_message": null
+}
