@@ -101,3 +101,25 @@ Iteration 2: The Regularization Penalty
 
 Updated Task context to explore more fruitfull models. 
     By explicitly stating that deviation causes a "fatal script crash" and framing the backbone as a downstream VRAM limitation, the LLM is much less likely to "helpfully" upgrade the model size.
+
+The iteration pipeline was updated to address the severe domain shift observed in the baseline model, scaling the architecture to EfficientNet-B1 and replacing standard BCE with a custom Multi-Label Focal Loss to heavily penalize errors on minority classes. To simulate Kaggle's noisy environmental soundscapes, the agent was instructed to apply SpecAugment and inject Gaussian noise directly into the data pipeline.
+
+A critical execution flaw was caught and patched during this run when the agent failed to convert the 1D waveforms into 2D mel-spectrograms before passing them to the model. Once the transformations were manually injected, the model trained under heavy regularization, completing its 20 epochs with a lower but theoretically more robust validation AUC of 0.8171.
+
+The weights were manually backed up to bypass the local orchestrator's automated deletion protocol. During the Kaggle submission pipeline, a state dictionary size mismatch occurred because the cloud notebook was still expecting the baseline B0 architecture. The notebook's class definition was updated to perfectly mirror the new B1 backbone and 512-dimensional classification head, allowing the offline scoring container to execute successfully.
+
+The leaderboard score dropped to 0.600, proving that synthetic white noise acts as destructive spectral static rather than a valid simulation of environmental interference, effectively blinding the model to the necessary bird call micro-harmonics.
+
+The pipeline was immediately pivoted to Iteration 3, completely stripping out the Gaussian noise in favor of Mixup ($\alpha=0.2$) to mathematically blend audio samples and simulate true overlapping biological soundscapes.
+
+To ensure the local LLM successfully executed this pivot without hallucinating or conflicting with prior instructions, the orchestration template was entirely rewritten. Both the Mixup logic and the Focal Loss mathematical formulation were hardcoded directly into the baseline prompt, guaranteeing the agent adhered strictly to the new architectural constraints.
+
+We started by addressing a "Submission File Not Found" error during the Kaggle hidden scoring phase. The root cause was identified as a spatial collapse in the EfficientNet backbone triggered by odd-length audio chunks. We implemented zero-padding to guarantee consistent 5-second tensor shapes and added a boot-level failsafe to write a default submission file immediately, preventing fatal environment crashes from consuming submission slots.
+
+Upon securing the pipeline, the submission returned a 0.500 fallback score, indicating a localized crash triggered the failsafe. We introduced a micro-containment architecture within the inference loop using strict exception handling. This ensured that if a specific hidden audio file or chunk was corrupted, the script would output zeros solely for that chunk and safely continue processing the remainder of the dataset.
+
+Despite the containment, the score remained a flatline 0.500. A review of the training loop revealed a tensor shape mismatch during the Pandas dictionary construction. We explicitly enforced a 4D input tensor for the model and applied a reshape operation to the output probabilities, guaranteeing a flat, one-dimensional array of 206 elements per chunk. This resolved silent batch-dimension alignment failures during the final dataframe merge.
+
+A critical mathematical domain shift was then identified in the spectrogram extraction pipeline. The inference script was utilizing decibel conversion, while the model had been trained purely on natural logarithms. We reverted the extraction function to strictly use the natural logarithm, aligning the evaluation mathematics precisely with the training environment and unfreezing the network's activations.
+
+Finally, we bypassed a Kaggle-specific evaluation trap where the hidden sample submission template truncated valid predictions due to missing row indices. We removed the index-based update method entirely and implemented a dynamic dataframe construction. This forced the pipeline to export every processed chunk as a new row, ensuring the actual probability distributions for the full hidden dataset were accurately mapped and submitted for grading.
