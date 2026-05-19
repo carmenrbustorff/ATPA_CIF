@@ -1,0 +1,145 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Define hyperparameters
+NUM_SPECIES = 206
+EPOCHS = 6
+BATCH_SIZE = 16  # Based on iteration number % 3 == 1 (medium, balanced)
+LR = 0.0001  # Based on iteration number % 3 == 1 (reduced for fine-tuning)
+DROPOUT_RATE = 0.2  # Dropout rate
+L2_REGULARIZATION = 0.0001  # L2 regularization
+
+# Data ingestion
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=BATCH_SIZE)
+
+# Subset the dataset for faster iteration
+subset_size = 15000
+subset_indices = torch.randperm(len(train_loader.dataset))[:subset_size]
+sub_train_dataset = torch.utils.data.Subset(train_loader.dataset, subset_indices)
+train_loader = torch.utils.data.DataLoader(sub_train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+# Define the model architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species=NUM_SPECIES, dropout_rate=DROPOUT_RATE, num_conv_layers=3):
+        super(BirdCLEFModel, self).__init__()
+        
+        # Convolutional layers
+        conv_layers = []
+        in_channels = 1
+        out_channels = 32
+        
+        for i in range(num_conv_layers):
+            conv_layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            conv_layers.append(nn.BatchNorm2d(out_channels))
+            conv_layers.append(nn.ReLU())
+            in_channels = out_channels
+            out_channels *= 2
+        
+        self.conv_layers = nn.Sequential(*conv_layers)
+        
+        # Adaptive pooling and flattening
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Fully connected layers
+        fc_layers = []
+        fc_layers.append(nn.Linear(out_channels // 2, 128))  # Adjusted for the last out_channels
+        fc_layers.append(nn.ReLU())
+        fc_layers.append(nn.Dropout(dropout_rate))
+        fc_layers.append(nn.Linear(128, num_species))
+        
+        self.classifier = nn.Sequential(*fc_layers)
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model, loss function, and optimizer
+model = BirdCLEFModel(num_species=NUM_SPECIES, dropout_rate=DROPOUT_RATE)
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=L2_REGULARIZATION)
+
+# Move model to CUDA if available
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
+# Training loop
+train_losses = []
+for epoch in range(EPOCHS):
+    model.train()
+    for batch_idx, (inputs, labels) in enumerate(train_loader):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        train_losses.append(loss.item())
+        torch.cuda.empty_cache()  # Prevent GPU fragmentation
+        
+        if (batch_idx + 1) % 50 == 0:  # Report every 50 batches
+            print(f"Epoch [{epoch+1}/{EPOCHS}], Batch [{batch_idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
+
+# Evaluation on the same train_loader in eval mode for simplicity
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        all_preds.append(outputs.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
+
+# Flatten predictions and labels
+import numpy as np
+all_preds_flat = np.concatenate(all_preds, axis=0)
+all_labels_flat = np.concatenate(all_labels, axis=0)
+
+# Compute AUC
+from sklearn.metrics import roc_auc_score
+final_auc = roc_auc_score(all_labels_flat, all_preds_flat, average='weighted')
+print(f"Final AUC: {final_auc:.4f}")
+
+# Save metrics to JSON
+metrics_dict = {
+    "final_train_loss": np.mean(train_losses),
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": EPOCHS,
+    "batch_size": BATCH_SIZE,
+    "training_samples": subset_size,
+    "eval_samples": len(all_labels_flat)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics_dict, f)
+
+print("METRICS: " + json.dumps(metrics_dict))
+
+# Save model checkpoint
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation:
+1. **Imports and Hyperparameters**: The script starts with the required imports and defines hyperparameters based on the iteration rules.
+2. **Data Ingestion**: Uses `get_dataloader` to get a single DataLoader for training data. A subset of 15000 samples is used for faster training iterations.
+3. **Model Architecture**: A CNN model is defined with convolutional layers followed by batch normalization, ReLU activation, and adaptive pooling. The classifier uses two linear layers with dropout for regularization.
+4. **Training Loop**: The model is trained for 6 epochs using BCELoss and Adam optimizer. Loss is computed per batch and GPU memory is cleared after each batch to prevent fragmentation.
+5. **Evaluation**: The same DataLoader is used in evaluation mode to compute the AUC score on the training set.
+6. **Metrics Saving**: Metrics including final loss, AUC, number of parameters, and other details are saved to `metrics.json`.
+7. **Model Checkpoint**: Model weights are saved for future use or submission.
+
+This architecture and training loop are designed for rapid experimentation and can be easily modified to explore different hyperparameters or model architectures.

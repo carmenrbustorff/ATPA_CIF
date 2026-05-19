@@ -1,0 +1,172 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import torchaudio.transforms as T
+
+# Constants
+NUM_SPECIES = 206
+MAX_EPOCHS = 40
+EARLY_STOPPING_PATIENCE = 5
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Model Definition
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species, conv_layers=3, dropout_rate=0.2, batch_norm=True):
+        super(BirdCLEFModel, self).__init__()
+        channels = [16, 32, 64, 128][:conv_layers]
+        layers = []
+        
+        for i in range(len(channels) - 1):
+            layers.append(nn.Conv2d(channels[i], channels[i+1], kernel_size=3, padding=1))
+            if batch_norm:
+                layers.append(nn.BatchNorm2d(channels[i+1]))
+            layers.append(nn.ReLU())
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.flatten = nn.Flatten()
+        self.classifier = nn.Sequential(
+            nn.Linear(channels[-1], 128),
+            nn.Dropout(dropout_rate),
+            nn.ReLU(),
+            nn.Linear(128, num_species)
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Data Loading
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=32,
+    augment=True,
+)
+
+# Hyperparameters
+iteration = 3  # Example iteration number for hyperparameter selection
+batch_sizes = [8, 16, 32]
+learning_rates = [0.001, 0.0001, 0.00001]
+conv_layer_depths = [2, 3, 4]
+dropout_rates = [0.0, 0.2, 0.5]
+batch_size = batch_sizes[iteration % 3]
+lr = learning_rates[iteration % 3]
+conv_layers = conv_layer_depths[iteration % 3]
+dropout_rate = dropout_rates[iteration % 3]
+
+# Model, Loss, and Optimizer
+model = BirdCLEFModel(NUM_SPECIES, conv_layers=conv_layers, dropout_rate=dropout_rate)
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+
+# Training Loop
+def train_model(model, train_loader, val_loader, max_epochs, early_stopping_patience):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    
+    best_auc = 0.0
+    patience_counter = 0
+    
+    for epoch in range(max_epochs):
+        model.train()
+        total_loss = 0.0
+        train_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{max_epochs}')
+        
+        for inputs, labels in train_bar:
+            try:
+                inputs, labels = inputs.to(device), labels.to(device)
+                
+                # Apply SpecAugment
+                freq_mask = T.FrequencyMasking(freq_mask_param=30)
+                time_mask = T.TimeMasking(time_mask_param=40)
+                inputs = freq_mask(time_mask(inputs))
+                
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, labels.float())
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+                train_bar.set_postfix(loss=f'{loss.item():.4f}')
+            except RuntimeError as e:
+                print(f"RuntimeError: {e}")
+                torch.cuda.empty_cache()
+        
+        # Validation
+        model.eval()
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                all_preds.extend(outputs.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+        
+        # Compute AUC
+        from sklearn.metrics import roc_auc_score
+        auc = roc_auc_score(all_labels, all_preds, average='weighted')
+        print(f'Epoch {epoch+1}, Validation AUC: {auc:.4f}')
+        
+        if auc > best_auc:
+            best_auc = auc
+            patience_counter = 0
+            torch.save(model.state_dict(), 'model.pt')
+        else:
+            patience_counter += 1
+            if patience_counter >= early_stopping_patience:
+                print("Early stopping triggered.")
+                break
+    
+    return total_loss / len(train_loader), best_auc
+
+# Execute Training
+final_train_loss, final_auc = train_model(model, train_loader, val_loader, MAX_EPOCHS, EARLY_STOPPING_PATIENCE)
+
+# Save Metrics
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": max_epochs,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Explanation:
+
+1. **Model Definition**: The `BirdCLEFModel` class is defined with adjustable number of convolutional layers (`conv_layers`) and dropout rate (`dropout_rate`). This allows for flexible experimentation.
+
+2. **Data Loading**: The data is loaded using the `build_train_val_dataloaders` function, which returns a training and validation loader.
+
+3. **Hyperparameters**: Hyperparameters are selected based on the iteration number (`iteration`). The selection follows a systematic pattern to explore different configurations quickly.
+
+4. **Training Loop**:
+   - The model is trained for a maximum of `MAX_EPOCHS`.
+   - SpecAugment (frequency and time masking) is applied during training to improve generalization.
+   - Validation is performed after each epoch, and the AUC is computed using `roc_auc_score`.
+
+5. **Early Stopping**: If the validation AUC does not improve for `EARLY_STOPPING_PATIENCE` epochs, training stops early.
+
+6. **Metrics and Model Saving**:
+   - Training loss, final AUC, number of parameters, and other relevant metrics are saved to `metrics.json`.
+   - The model's state dictionary is saved as `model.pt`.
+
+This setup allows for rapid experimentation with different hyperparameters and architectures, facilitating quick iterations towards improving the model's performance.

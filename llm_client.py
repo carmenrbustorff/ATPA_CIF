@@ -2,7 +2,7 @@
 LLM Client for the Autonomous Research Agent.
 
 Communicates with a locally-hosted LLM via the Ollama API
-(OpenAI-compatible) at http://localhost:11434.
+(OpenAI-compatible) at http://127.0.0.1:11434.
 
 Supports any model available in the local Ollama instance,
 e.g. gemma3, qwen2.5-coder, llama3, deepseek-coder, etc.
@@ -16,8 +16,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "gemma3"
+OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+DEFAULT_MODEL = "qwen2.5-coder:32b"
 
 
 class LLMClient:
@@ -112,14 +112,17 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        import ollama  # type: ignore
+        from ollama import Client  # type: ignore
+
+        # Create a client that respects the 300-second timeout
+        client = Client(host=self.base_url, timeout=self.timeout)
 
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        response = ollama.chat(
+        response = client.chat(
             model=self.model,
             messages=messages,
             options={

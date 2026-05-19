@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "Epoch [1/6], Step [50/313], Loss: 0.6049\nEpoch [1/6], Step [100/313], Loss: 0.3690\nEpoch [1/6], Step [150/313], Loss: 0.1596\nEpoch [1/6], Step [200/313], Loss: 0.0725\nEpoch [1/6], Step [250/313], Loss: 0.0471\nEpoch [1/6], Step [300/313], Loss: 0.0365\nEpoch [2/6], Step [50/313], Loss: 0.0305\nEpoch [2/6], Step [100/313], Loss: 0.0245\nEpoch [2/6], Step [150/313], Loss: 0.0265\nEpoch [2/6], Step [200/313], Loss: 0.0219\nEpoch [2/6], Step [250/313], Loss: 0.0227\nEpoch [2/6], Step [300/313], Loss: 0.0211\nEpoch [3/6], Step [50/313], Loss: 0.0238\nEpoch [3/6], Step [100/313], Loss: 0.0205\nEpoch [3/6], Step [150/313], Loss: 0.0227\nEpoch [3/6], Step [200/313], Loss: 0.0217\nEpoch [3/6], Step [250/313], Loss: 0.0186\nEpoch [3/6], Step [300/313], Loss: 0.0218\nEpoch [4/6], Step [50/313], Loss: 0.0227\nEpoch [4/6], Step [100/313], Loss: 0.0210\nEpoch [4/6], Step [150/313], Loss: 0.0208\nEpoch [4/6], Step [200/313], Loss: 0.0218\nEpoch [4/6], Step [250/313], Loss: 0.0210\nEpoch [4/6], Step [300/313], Loss: 0.0215\nEpoch [5/6], Step [50/313], Loss: 0.0226\nEpoch [5/6], Step [100/313], Loss: 0.0206\nEpoch [5/6], Step [150/313], Loss: 0.0211\nEpoch [5/6], Step [200/313], Loss: 0.0218\nEpoch [5/6], Step [250/313], Loss: 0.0197\nEpoch [5/6], Step [300/313], Loss: 0.0199\nEpoch [6/6], Step [50/313], Loss: 0.0200\nEpoch [6/6], Step [100/313], Loss: 0.0205\nEpoch [6/6], Step [150/313], Loss: 0.0179\nEpoch [6/6], Step [200/313], Loss: 0.0187\nEpoch [6/6], Step [250/313], Loss: 0.0240\nEpoch [6/6], Step [300/313], Loss: 0.0222\nMETRICS: {\"final_train_loss\": 0.36997934906317975, \"final_auc\": 0.5629308668469091, \"num_params\": 136206, \"epochs_trained\": 6, \"batch_size\": 16, \"training_samples\": 5000, \"eval_samples\": 5000}\n",
+  "stderr": "/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/sklearn/metrics/_ranking.py:442: UndefinedMetricWarning: Only one class is present in y_true. ROC AUC score is not defined in that case.\n  warnings.warn(\n",
+  "timed_out": false,
+  "duration_s": 461.85,
+  "metrics": {
+    "final_train_loss": 0.36997934906317975,
+    "final_auc": 0.5629308668469091,
+    "num_params": 136206,
+    "epochs_trained": 6,
+    "batch_size": 16,
+    "training_samples": 5000,
+    "eval_samples": 5000
+  }
+}

@@ -11,8 +11,8 @@ Includes:
   - PyTorch EfficientNet transfer-learning model
   - BirdNET-inspired fine-tunable feature extractor stub
 
-All models output a 234-dimensional sigmoid-activated vector suitable for
-multi-label (binary cross-entropy) training.
+PyTorch models output raw logits for use with BCEWithLogitsLoss.
+TensorFlow/Keras models continue to output sigmoid-activated predictions.
 """
 
 from __future__ import annotations
@@ -20,9 +20,11 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
+from config import SR, N_MELS, N_FFT, HOP_LENGTH, CLIP_DURATION, NUM_SPECIES
+
 logger = logging.getLogger(__name__)
 
-NUM_SPECIES = 234   # BirdCLEF+ 2026 Track B
+NUM_SPECIES = NUM_SPECIES   # BirdCLEF+ 2026 Track B
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +200,7 @@ def build_simple_cnn_torch(
 
         def forward(self, x):
             x = self.features(x)
-            return torch.sigmoid(self.classifier(x))
+            return self.classifier(x)
 
     return SimpleCNN()
 
@@ -245,7 +247,6 @@ def build_efficientnet_torch(
     base.classifier = nn.Sequential(
         nn.Dropout(dropout_rate),
         nn.Linear(in_features, num_classes),
-        nn.Sigmoid(),
     )
     # Re-enable classifier gradients
     for param in base.classifier.parameters():

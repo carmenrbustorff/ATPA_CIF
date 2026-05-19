@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0051-0100/iter_0099_20260515_144731/train.py\", line 44, in <module>\n    train_loader.dataset = train_subset\n    ^^^^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/utils/data/dataloader.py\", line 470, in __setattr__\n    raise ValueError(\n        f\"{attr} attribute should not be set after {self.__class__.__name__} is initialized\"\n    )\nValueError: dataset attribute should not be set after DataLoader is initialized\n",
+  "timed_out": false,
+  "duration_s": 3.89
+}

@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "Epoch [1/2], Loss: 0.6899\nEpoch [2/2], Loss: 0.6683\nMETRICS: {\"final_train_loss\": 0.6790988147258759, \"final_auc\": 0.4933394479666762, \"num_params\": 186282, \"epochs_trained\": 2, \"batch_size\": 16, \"training_samples\": 160, \"eval_samples\": 35549}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 221.28,
+  "metrics": {
+    "final_train_loss": 0.6790988147258759,
+    "final_auc": 0.4933394479666762,
+    "num_params": 186282,
+    "epochs_trained": 2,
+    "batch_size": 16,
+    "training_samples": 160,
+    "eval_samples": 35549
+  }
+}

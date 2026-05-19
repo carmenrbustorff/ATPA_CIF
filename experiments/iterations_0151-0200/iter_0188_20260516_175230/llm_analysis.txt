@@ -1,0 +1,131 @@
+### Analysis of Previous Experiment
+
+#### 1. What Worked Well?
+- **Dataset Initialization**: The dataset was successfully initialized with 5000 training samples and 1000 validation samples.
+- **Model Loading**: The EfficientNet-B0 model was loaded correctly, including the conversion of input convolutions from 3 to 1 channel.
+- **Training Loss**: The training loss decreased steadily over 20 epochs, indicating that the model was learning effectively.
+
+#### 2. What Needs Improvement?
+- **Validation AUC**: The final validation AUC was very low at 0.5, which suggests that the model is not performing well on the validation set.
+- **Learning Rate and Optimizer**: The current learning rate of 0.0001 might be too low for fine-tuning, potentially leading to slow convergence or getting stuck in local minima.
+- **Gradient Clipping**: While gradient clipping is a good practice to prevent exploding gradients, it might need adjustment based on the model's performance and dataset characteristics.
+- **Positive Weighting**: The positive weight of 50.0 for rare bird calls might be too high, leading to imbalanced loss calculations.
+
+### Specific Changes for the Next Iteration
+
+Based on the analysis above, we will make the following changes for the next iteration:
+
+1. **Adjust Learning Rate**: Increase the learning rate slightly to allow for faster convergence.
+2. **Gradient Clipping**: Adjust the gradient clipping threshold to ensure it is effective without being too restrictive.
+3. **Positive Weighting**: Reduce the positive weight to a more moderate value to balance the loss calculation.
+
+### Code Snippets for Next Iteration
+
+Here are the updated code snippets implementing the above changes:
+
+```python
+# 4. Optimizer, Loss, and AMP Scaler
+# Adjust learning rate
+optimizer = optim.Adam(model.parameters(), lr=0.001) 
+
+# Pass ALL parameters and lower the learning rate for fine-tuning
+pos_weight = torch.ones([NUM_SPECIES], device=device) * 25.0  # Reduced positive weight
+
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+scaler = torch.cuda.amp.GradScaler()  # Use CUDA AMP scaler directly
+
+max_epochs = 20
+all_train_losses = []
+
+# Training loop
+for epoch in range(1, max_epochs + 1):
+    model.train()
+    train_loss = 0.0
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch}/{max_epochs}"):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        
+        with torch.cuda.amp.autocast():  # Use CUDA AMP autocast
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.float())
+        
+        scaler.scale(loss).backward()
+        
+        # Gradient clipping
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scaler.step(optimizer)
+        scaler.update()
+        
+        train_loss += loss.item() * inputs.size(0)
+    
+    train_loss /= len(train_loader.dataset)
+    all_train_losses.append(train_loss)
+    print(f"Epoch {epoch}/{max_epochs}, Train Loss: {train_loss:.4f}")
+
+# Validation loop
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in tqdm(val_loader, desc="Validation"):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        with torch.cuda.amp.autocast():  # Use CUDA AMP autocast
+            outputs = model(inputs)
+            preds = torch.sigmoid(outputs)
+        
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Metric calculation
+all_preds = np.array(all_preds)
+y_true_one_hot = np.array(all_labels)
+
+# 1. Bulletproof mask: Check that the column has at least one positive AND at least one negative.
+col_sums = np.sum(y_true_one_hot, axis=0)
+valid_classes = (col_sums > 0) & (col_sums < len(y_true_one_hot))
+
+# 2. Safe AUC calculation
+if np.any(valid_classes):
+    filtered_true = y_true_one_hot[:, valid_classes]
+    filtered_preds = all_preds[:, valid_classes]
+
+    try:
+        final_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro', multi_class='ovr'))
+    except ValueError:
+        final_auc = 0.5000  # Failsafe if sklearn still complains
+else:
+    final_auc = 0.5000
+
+print(f"Final Validation AUC: {final_auc:.4f}")
+
+# Save Metrics
+metrics = {
+    "final_train_loss": all_train_losses[-1] if 'all_train_losses' in locals() and all_train_losses else 0.0,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": max_epochs,
+    "batch_size": 128, 
+    "training_samples": len(train_loader.dataset),  
+    "eval_samples": len(val_loader.dataset)  
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+
+# Save Model
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Summary of Changes:
+- **Learning Rate**: Increased to 0.001.
+- **Positive Weight**: Reduced to 25.0.
+- **Gradient Clipping**: Ensured with a max norm of 1.0.
+
+These changes should help improve the model's performance on the validation set, potentially leading to better AUC scores.

@@ -1,0 +1,77 @@
+### Analysis of Training Run
+
+#### 1. What Worked Well?
+- **Model Performance**: The model was able to compute AUC scores, indicating that it was making meaningful predictions.
+- **Error Handling**: The script correctly caught an error related to the format of the target scores (they were not probabilities) and raised a `ValueError`. This suggests that the script has good error handling for certain types of input errors.
+
+#### 2. What Needs Improvement?
+- **Data Quality**: The issue with non-probabilistic target scores suggests that there may be an issue with how the model's predictions are being interpreted or post-processed.
+- **Logging and Debugging**: Although the script caught a `ValueError`, it did not provide detailed logging about the state of the data when the error occurred. This makes it difficult to understand what exactly went wrong without manually inspecting the data.
+- **Model Configuration**: The model may need adjustments in its configuration or training process to ensure that the predictions are probabilities.
+
+#### 3. Specific Changes for the Next Iteration
+
+1. **Ensure Predictions are Probabilities**:
+   - Make sure that the model's output is a probability distribution over classes. This can often be achieved by using a softmax activation function in the final layer of the model.
+   
+   ```python
+   # Example of modifying the final layer to use softmax for multi-class classification
+   from tensorflow.keras.layers import Dense, Softmax
+
+   def build_model(input_shape, num_classes):
+       model = tf.keras.Sequential([
+           # Existing layers...
+           Dense(num_classes),
+           Softmax()
+       ])
+       return model
+   ```
+
+2. **Add Logging for Data Inspection**:
+   - Add logging statements before the AUC calculation to log the shape and contents of `all_labels` and `all_preds`. This will help in understanding the data when an error occurs.
+   
+   ```python
+   import logging
+
+   logging.basicConfig(level=logging.DEBUG)
+   logger = logging.getLogger(__name__)
+
+   # Log relevant information before calculating ROC AUC
+   logger.debug(f"Shape of all_labels: {all_labels.shape}")
+   logger.debug(f"Sample of all_labels: {all_labels[:10]}")
+   logger.debug(f"Shape of all_preds: {all_preds.shape}")
+   logger.debug(f"Sample of all_preds: {all_preds[:10]}")
+
+   try:
+       val_auc = roc_auc_score(all_labels, all_preds, average='weighted', multi_class='ovr')
+       logger.info(f"Validation AUC: {val_auc}")
+   except ValueError as e:
+       logger.error(f"Error calculating ROC AUC: {e}")
+       raise
+   ```
+
+3. **Handle Missing or Corrupted Data**:
+   - Ensure that the data loading and preprocessing steps are robust and handle missing or corrupted audio files gracefully. This could involve adding checks during file reading and skipping problematic files.
+   
+   ```python
+   import os
+
+   def load_audio_file(file_path):
+       try:
+           # Code to load and preprocess audio file
+           return preprocessed_data
+       except Exception as e:
+           logger.warning(f"Failed to load {file_path}: {e}")
+           return None
+
+   # Example usage in data loading loop
+   all_preds = []
+   for file_path in audio_files:
+       pred = load_audio_file(file_path)
+       if pred is not None:
+           all_preds.append(pred)
+       else:
+           logger.warning(f"Skipping {file_path} due to failure to load.")
+   ```
+
+By implementing these changes, the next iteration should be more robust and provide better insights into any issues that arise during training.

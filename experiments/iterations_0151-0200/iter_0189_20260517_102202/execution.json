@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0189_20260517_102202/train.py\", line 125\n    print(\"\n          ^\nSyntaxError: unterminated string literal (detected at line 125)\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 0.03
+}

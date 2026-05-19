@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-15 18:24:27,507 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 18:24:29,234 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 18:24:29,248 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-15 18:24:29,269 | INFO     | data_loader | Stratified split \u2014 train: 28436  val: 7109  dropped: 4\n2026-05-15 18:24:29,269 | INFO     | data_loader | Train: 889 batches  |  Val: 223 batches  (batch_size=32)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0101-0150/iter_0118_20260515_182334/train.py\", line 66, in <module>\n    model = BirdCLEFModel(num_species=len(train_loader.dataset.classes)).to('cuda')\n                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'Subset' object has no attribute 'classes'\n",
+  "timed_out": false,
+  "duration_s": 7.88
+}

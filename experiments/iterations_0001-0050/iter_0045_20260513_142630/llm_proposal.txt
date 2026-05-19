@@ -1,0 +1,136 @@
+Below is the proposed PyTorch model architecture for the BirdCLEF+ 2026 Track B competition with a focus on multi-label classification of 234 bird species from mel-spectrogram inputs. The provided code includes a systematic approach to hyperparameter tuning, training loop setup, and evaluation metrics capture as per the guidelines.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Data Ingestion
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=16)
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes=234, conv_depth=3, dropout_rate=0.0):
+        super(BirdCLEFModel, self).__init__()
+        layers = []
+        in_channels = 1
+        for i in range(conv_depth):
+            out_channels = 32 * (2 ** i)
+            layers.extend([
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(),
+            ])
+            in_channels = out_channels
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(dropout_rate)
+        self.classifier = nn.Sequential(
+            nn.Linear(in_channels, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        x = self.dropout(x)
+        return torch.sigmoid(self.classifier(x))
+
+# Hyperparameter Selection
+iteration = 4  # Example iteration number
+
+batch_size_options = [8, 16, 32]
+lr_options = [0.001, 0.0001, 0.00001]
+conv_depth_options = [2, 3, 4]
+dropout_rate_options = [0.0, 0.2, 0.5]
+
+batch_size = batch_size_options[iteration % 3]
+lr = lr_options[iteration % 3]
+conv_depth = conv_depth_options[iteration % 3]
+dropout_rate = dropout_rate_options[iteration % 3]
+
+# Model Setup
+model = BirdCLEFModel(num_classes=234, conv_depth=conv_depth, dropout_rate=dropout_rate).to('cuda')
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.001)
+
+# Training Loop
+num_epochs = 2
+train_loader.dataset.limit_samples(5000)  # Limit to first 5000 samples for fast feedback
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item() * inputs.size(0)
+    
+    epoch_loss = running_loss / len(train_loader.dataset)
+    print(f"Epoch {epoch+1}/{num_epochs} - Training Loss: {epoch_loss:.4f}")
+    torch.cuda.empty_cache()
+
+# Evaluation
+train_loader.dataset.eval_mode()
+model.eval()
+all_preds, all_labels = [], []
+
+with torch.no_grad():
+    for inputs, labels in tqdm(train_loader, desc="Validation"):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        outputs = model(inputs)
+        
+        all_preds.append(outputs.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
+
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+all_preds = np.concatenate(all_preds)
+all_labels = np.concatenate(all_labels)
+
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Metrics Capture & Model Saving
+num_params = sum(p.numel() for p in model.parameters())
+training_samples = 5000
+eval_samples = len(train_loader.dataset)
+
+metrics = {
+    "final_train_loss": epoch_loss.item(),
+    "final_auc": final_auc,
+    "num_params": num_params,
+    "epochs_trained": num_epochs,
+    "batch_size": batch_size,
+    "training_samples": training_samples,
+    "eval_samples": eval_samples
+}
+
+print("METRICS: " + json.dumps(metrics))
+
+torch.save(model.state_dict(), 'model.pt')
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+```
+
+### Explanation:
+- **Model Architecture**: The `BirdCLEFModel` class is designed to be flexible in terms of convolutional depth and dropout rate. This allows for systematic hyperparameter exploration.
+- **Hyperparameter Tuning**: Based on the iteration number, different batch sizes, learning rates, convolutional depths, and dropout rates are selected systematically.
+- **Training Loop**: The training loop uses the `train_loader` to train for 2 epochs with a subset of data (first 5000 samples) for fast feedback. It includes loss reporting using `tqdm`.
+- **Evaluation**: After training, the model is evaluated in validation mode on the same `train_loader`. Validation metrics such as AUC are computed.
+- **Metrics Capture & Model Saving**: Training and evaluation metrics are saved to a JSON file along with the model weights for later use.
+
+This setup ensures rapid iterations and systematic hyperparameter exploration, aligning with the competition's requirements.

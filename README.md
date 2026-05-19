@@ -54,7 +54,7 @@ ollama pull llama3          # Meta LLaMA 3
 ollama serve
 ```
 
-The agent connects to `http://localhost:11434` by default.
+The agent connects to `http://127.0.0.1:11434` by default.
 
 ### 3 — (Optional) Download the BirdCLEF+ 2026 dataset
 

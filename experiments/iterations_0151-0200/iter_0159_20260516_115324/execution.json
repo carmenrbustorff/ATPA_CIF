@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-16 11:54:30,407 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 11:54:32,119 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 11:54:32,131 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 11:54:32,153 | INFO     | data_loader | Stratified split \u2014 train: 28436  val: 7109  dropped: 4\n2026-05-16 11:54:32,153 | INFO     | data_loader | Train: 1778 batches  |  Val: 445 batches  (batch_size=16)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0159_20260516_115324/train.py\", line 78, in <module>\n    spec_augment = T.TimeMasking(time_mask_param=80)\n                   ^\nNameError: name 'T' is not defined\n",
+  "timed_out": false,
+  "duration_s": 9.24
+}

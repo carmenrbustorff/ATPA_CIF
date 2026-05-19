@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-16 13:45:11,295 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:45:12,851 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:45:12,862 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 13:45:12,886 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 13:45:12,887 | INFO     | data_loader | Train: 40 batches  |  Val: 8 batches  (batch_size=128)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0172_20260516_134410/train.py\", line 97, in <module>\n    scaler.scale(loss).backward()\n    ^^^^^^\nNameError: name 'scaler' is not defined\n",
+  "timed_out": false,
+  "duration_s": 32.51
+}

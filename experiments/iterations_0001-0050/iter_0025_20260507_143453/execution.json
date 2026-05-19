@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0025_20260507_143453/train.py\", line 58, in <module>\n    loss = criterion(outputs, labels.float())\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1739, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1750, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/modules/loss.py\", line 699, in forward\n    return F.binary_cross_entropy(\n           ~~~~~~~~~~~~~~~~~~~~~~^\n        input, target, weight=self.weight, reduction=self.reduction\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/carme/ATPA_CIF/.venv/lib/python3.13/site-packages/torch/nn/functional.py\", line 3560, in binary_cross_entropy\n    raise ValueError(\n    ...<2 lines>...\n    )\nValueError: Using a target size (torch.Size([32, 234])) that is different to the input size (torch.Size([864, 234])) is deprecated. Please ensure they have the same size.\n",
+  "timed_out": false,
+  "duration_s": 5.8
+}

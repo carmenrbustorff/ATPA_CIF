@@ -1,0 +1,108 @@
+Given the constraints of running on CPU within 90 minutes, we need to prioritize a lightweight model that can be trained efficiently. A good starting point is a simple Convolutional Neural Network (CNN) with batch normalization layers for stability. We'll use TensorFlow/Keras for this task.
+
+### Model Architecture
+
+The proposed CNN architecture includes:
+- Input layer matching the shape of mel-spectrograms.
+- Two convolutional blocks each consisting of a 2D convolution layer, ReLU activation, and batch normalization.
+- A global average pooling layer to reduce dimensionality.
+- A dense output layer with sigmoid activation for multi-label classification.
+
+### Data Loading Assumptions
+
+We assume the data is preprocessed into mel-spectrograms stored in `data_dir`. We'll use TensorFlow's `tf.data.Dataset` API for efficient data loading and batching.
+
+### Training Loop
+
+The training loop includes:
+- Model compilation with binary cross-entropy loss (suitable for multi-label classification).
+- Early stopping to prevent overfitting.
+- A simple accuracy metric.
+
+### Evaluation Code
+
+We will evaluate the model using a validation split from our dataset. The evaluation code will compute the area under the ROC curve (AUC) for each class.
+
+Here is the complete code:
+
+```python
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, BatchNormalization, ReLU, GlobalAveragePooling2D, Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+# Parameters
+data_dir = "/home/carme/birdclef-data"
+input_shape = (128, 128, 1)  # Example input shape for mel-spectrograms
+num_classes = 234
+batch_size = 64
+epochs = 50
+
+# Model definition
+def create_model(input_shape, num_classes):
+    model = Sequential([
+        Conv2D(32, (3, 3), padding='same', input_shape=input_shape),
+        BatchNormalization(),
+        ReLU(),
+        Conv2D(64, (3, 3), padding='same'),
+        BatchNormalization(),
+        ReLU(),
+        GlobalAveragePooling2D(),
+        Dense(num_classes, activation='sigmoid')
+    ])
+    return model
+
+# Data loading
+def load_data(data_dir):
+    # Placeholder for actual data loading logic
+    # For demonstration, let's create dummy data
+    np.random.seed(42)
+    X = np.random.rand(1000, *input_shape)  # 1000 samples of dummy mel-spectrograms
+    y = np.random.randint(0, 2, size=(1000, num_classes))  # Random binary labels for multi-label classification
+    return X, y
+
+X, y = load_data(data_dir)
+
+# Split data into training and validation sets
+train_size = int(0.8 * len(X))
+X_train, X_val = X[:train_size], X[train_size:]
+y_train, y_val = y[:train_size], y[train_size:]
+
+train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train)).batch(batch_size)
+val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val)).batch(batch_size)
+
+# Model creation and compilation
+model = create_model(input_shape, num_classes)
+model.compile(optimizer=Adam(learning_rate=0.001),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+# Callbacks
+early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+# Training
+history = model.fit(train_dataset,
+                    epochs=epochs,
+                    validation_data=val_dataset,
+                    callbacks=[early_stopping])
+
+# Evaluation
+y_pred_prob = model.predict(val_dataset)
+roc_auc_scores = roc_auc_score(y_val, y_pred_prob, average=None)
+average_roc_auc = np.mean(roc_auc_scores)
+
+print(f"Average ROC AUC: {average_roc_auc}")
+```
+
+### Explanation
+
+- **Model Architecture**: The CNN is designed to capture spatial hierarchies in the mel-spectrograms using convolutional layers. Batch normalization ensures that each layer receives well-conditioned inputs, which speeds up training and improves performance.
+  
+- **Data Loading**: We use TensorFlow's `tf.data.Dataset` for efficient data loading and batching. The actual implementation of `load_data` should load the preprocessed mel-spectrograms from disk.
+
+- **Training Loop**: The model is compiled with binary cross-entropy loss, which is appropriate for multi-label classification problems. Early stopping is used to halt training when validation loss stops improving, preventing overfitting.
+
+- **Evaluation Code**: After training, the model's performance is evaluated using the area under the ROC curve (AUC) for each class, and an average AUC is computed across all classes. This metric provides a good indication of the model's ability to distinguish between species accurately.

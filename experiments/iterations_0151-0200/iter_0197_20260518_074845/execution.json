@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "2026-05-18 07:50:11,962 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-18 07:50:13,717 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-18 07:50:13,730 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-18 07:50:13,759 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 15000  val: 3000  dropped: 4\n2026-05-18 07:50:13,759 | INFO     | data_loader | Train: 235 batches  |  Val: 47 batches  (batch_size=64)\n2026-05-18 07:50:13,900 | INFO     | timm.models._builder | Loading pretrained weights from Hugging Face hub (timm/efficientnet_b1.ra4_e3600_r240_in1k)\n2026-05-18 07:50:14,042 | INFO     | httpx | HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b1.ra4_e3600_r240_in1k/resolve/main/model.safetensors \"HTTP/1.1 302 Found\"\n2026-05-18 07:50:14,044 | INFO     | timm.models._hub | [timm/efficientnet_b1.ra4_e3600_r240_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.\n2026-05-18 07:50:14,057 | INFO     | timm.models._builder | Converted input conv conv_stem pretrained weights from 3 to 1 channel(s)\nEpoch 1/40, Train Loss: 0.0071\nEpoch 1/40, Validation AUC: 0.5184\n--> Saved new best checkpoint with AUC: 0.5184\nEpoch 2/40, Train Loss: 0.0023\nEpoch 2/40, Validation AUC: 0.5373\n--> Saved new best checkpoint with AUC: 0.5373\nEpoch 3/40, Train Loss: 0.0022\nEpoch 3/40, Validation AUC: 0.5370\nEarly stopping counter: 1/5\nEpoch 4/40, Train Loss: 0.0021\nEpoch 4/40, Validation AUC: 0.5525\n--> Saved new best checkpoint with AUC: 0.5525\nEpoch 5/40, Train Loss: 0.0021\nEpoch 5/40, Validation AUC: 0.5153\nEarly stopping counter: 1/5\nEpoch 6/40, Train Loss: 0.0021\nEpoch 6/40, Validation AUC: 0.5339\nEarly stopping counter: 2/5\nEpoch 7/40, Train Loss: 0.0021\nEpoch 7/40, Validation AUC: 0.5428\nEarly stopping counter: 3/5\nEpoch 8/40, Train Loss: 0.0021\nEpoch 8/40, Validation AUC: 0.4940\nEarly stopping counter: 4/5\nEpoch 9/40, Train Loss: 0.0021\nEpoch 9/40, Validation AUC: 0.5272\nEarly stopping counter: 5/5\nEarly stopping triggered.\nMETRICS:  {\"final_train_loss\": 0.0020615154173859256, \"final_auc\": 0.5525480026543795, \"num_params\": 7276718, \"epochs_trained\": 9, \"batch_size\": 64, \"training_samples\": 15000, \"eval_samples\": 3000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 3067.97,
+  "metrics": {
+    "final_train_loss": 0.0020615154173859256,
+    "final_auc": 0.5525480026543795,
+    "num_params": 7276718,
+    "epochs_trained": 9,
+    "batch_size": 64,
+    "training_samples": 15000,
+    "eval_samples": 3000
+  }
+}

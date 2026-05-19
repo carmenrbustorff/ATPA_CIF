@@ -1,0 +1,11 @@
+# Repo Root
+SR = 32_000
+N_MELS = 128
+N_FFT = 1024
+HOP_LENGTH = 512
+CLIP_DURATION = 5.0
+NUM_SPECIES = 206
+
+DATA_DIR = "/mnt/disks/data/birdclef"
+
+N_FRAMES = int(SR * CLIP_DURATION / HOP_LENGTH)

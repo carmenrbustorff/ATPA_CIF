@@ -1,0 +1,116 @@
+Certainly! Below is a proposed PyTorch CNN architecture suitable for the BirdCLEF+ 2026 Track B competition. The model uses convolutional layers to extract features from mel-spectrograms followed by an adaptive average pooling layer to handle varying input sizes robustly. This is then connected to fully connected layers to produce the multi-label classification output.
+
+### Model Architecture
+- **Input Layer**: Mel-spectrogram of shape (1, 128, 216)
+- **Convolutional Layers**: Multiple Conv2d layers with ReLU activation and max pooling.
+- **Adaptive Average Pooling**: Flattens the features to a fixed size.
+- **Fully Connected Layers**: Linear layers followed by sigmoid activation for multi-label classification.
+
+### Training Loop
+- Uses a subset of data (first 5000 samples) for fast iteration.
+- Reports training loss after each epoch.
+- Saves model and metrics according to competition rules.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+import math
+from tqdm import tqdm
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=32)
+
+# Model Definition
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes=234):
+        super(BirdCLEFModel, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2))
+        self.pool = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.adaptive_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.fc1 = nn.Linear(128, 512)
+        self.fc2 = nn.Linear(512, num_classes)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = self.adaptive_pool(x)
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = self.sigmoid(self.fc2(x))
+        return x
+
+# Initialize model, loss function, and optimizer
+model = BirdCLEFModel().to('cuda')
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Training loop with tqdm for progress tracking
+epochs_trained = 2
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+total_loss = 0
+
+for epoch in range(epochs_trained):
+    model.train()
+    epoch_loss = 0.0
+    num_batches = 0
+    
+    # Limit to first 5000 samples for fast iteration
+    limited_loader = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs_trained}", total=math.ceil(5000 / train_loader.batch_size))
+    
+    for batch_idx, (data, target) in enumerate(limited_loader):
+        if batch_idx * train_loader.batch_size >= 5000:
+            break
+        data, target = data.to('cuda'), target.to('cuda')
+        
+        optimizer.zero_grad()
+        output = model(data)
+        loss = criterion(output, target.float())
+        loss.backward()
+        optimizer.step()
+        
+        epoch_loss += loss.item()
+        num_batches += 1
+        limited_loader.set_postfix(loss=epoch_loss / (batch_idx + 1))
+    
+    total_loss = epoch_loss / num_batches
+    torch.cuda.empty_cache()
+
+# Final training metrics
+final_train_loss = total_loss
+
+# Placeholder for validation AUC calculation
+# Since we don't have a validation set here, we'll just use a placeholder value
+final_auc = 0.0
+
+# Save model and metrics
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": final_auc,
+    "num_params": num_params,
+    "epochs_trained": epochs_trained,
+    "batch_size": train_loader.batch_size
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+# Print metrics to stdout
+print("METRICS:", json.dumps(metrics))
+
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation
+- **Model Architecture**: The model consists of three convolutional layers followed by max pooling. Adaptive average pooling ensures that the output size is consistent regardless of input dimensions, which is crucial for robust feature extraction.
+- **Training Loop**: Uses a simple training loop with an adaptive learning rate and limited data to ensure fast iteration. Loss is computed using Binary Cross Entropy Loss (`BCELoss`) suitable for multi-label classification.
+- **Metrics Capture**: Saves the final training loss, placeholder validation AUC (since no validation set was provided), number of parameters, epochs trained, and batch size in a JSON file named `metrics.json`. Also prints these metrics to standard output.

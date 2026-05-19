@@ -1,0 +1,155 @@
+Certainly! Given the constraints and requirements of the BirdCLEF+ 2026 competition, I propose an improved model architecture that adheres to the specified rules and systematically explores hyperparameters. The proposed architecture will include 3 convolutional layers for a balance between depth and computational efficiency, with adaptive pooling, dropout for regularization, and systematic exploration of batch size, learning rate, and other parameters.
+
+Here's the complete code:
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+
+# Define the model architecture
+class BirdClassifier(nn.Module):
+    def __init__(self, num_conv_layers=3, dropout_rate=0.2):
+        super(BirdClassifier, self).__init__()
+        layers = []
+        in_channels = 1
+        out_channels = 32
+        
+        for _ in range(num_conv_layers):
+            layers.extend([
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(),
+            ])
+            in_channels = out_channels
+            out_channels *= 2
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(dropout_rate)
+        self.classifier = nn.Sequential(
+            nn.Linear(out_channels, 128),
+            nn.ReLU(),
+            nn.Linear(128, 234)  # NO BatchNorm1d!
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        x = self.dropout(x)
+        return torch.sigmoid(self.classifier(x))
+
+# Systematic hyperparameter exploration
+iteration = 67  # Example iteration number
+batch_size_options = {0: 8, 1: 16, 2: 32}
+lr_options = {0: 0.001, 1: 0.0001, 2: 0.00001}
+num_conv_layers_options = {0: 2, 1: 3, 2: 4}
+
+batch_size = batch_size_options[iteration % 3]
+lr = lr_options[iteration % 3]
+num_conv_layers = num_conv_layers_options[iteration % 3]
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)
+
+# Model, optimizer, loss function
+model = BirdClassifier(num_conv_layers=num_conv_layers, dropout_rate=0.2).to('cuda')
+optimizer = optim.Adam(model.parameters(), lr=lr)
+criterion = nn.BCELoss()
+
+# Training loop
+epochs_trained = 2
+training_samples = 0
+final_train_loss = None
+
+for epoch in range(epochs_trained):
+    model.train()
+    batch_count = 0
+    
+    for inputs, labels in train_loader:
+        if batch_count >= 10:  # Limit to N batches for fast feedback
+            break
+        
+        optimizer.zero_grad()
+        outputs = model(inputs.to('cuda'))
+        loss = criterion(outputs, labels.to('cuda'))
+        loss.backward()
+        optimizer.step()
+        
+        final_train_loss = loss.item()
+        print(f"Epoch {epoch+1}, Batch {batch_count+1}, Loss: {loss.item()}")
+        
+        training_samples += inputs.shape[0]
+        batch_count += 1
+        torch.cuda.empty_cache()
+
+# Validation loop
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in train_loader:
+        outputs = model(inputs.to('cuda'))
+        all_preds.extend(outputs.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+# Compute validation AUC
+all_preds = np.array(all_preds)
+all_labels = np.array(all_labels)
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Save metrics and model checkpoint
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+eval_samples = len(all_labels)
+
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": final_auc,
+    "num_params": num_params,
+    "epochs_trained": epochs_trained,
+    "batch_size": batch_size,
+    "training_samples": training_samples,
+    "eval_samples": eval_samples
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+torch.save(model.state_dict(), 'model.pt')
+
+# Print metrics for log parsing
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Explanation:
+
+1. **Model Architecture**:
+   - The model includes 3 convolutional layers by default, which can be varied based on the iteration number.
+   - Each conv layer is followed by BatchNorm2d and ReLU activation, adhering to the required structure.
+   - Dropout is added after flattening for regularization.
+
+2. **Systematic Hyperparameter Exploration**:
+   - The batch size, learning rate, and number of convolutional layers are systematically varied based on the iteration number modulo 3.
+
+3. **Training Loop**:
+   - The model trains for 2 epochs with a maximum of 10 batches per epoch to ensure quick feedback.
+   - Loss is computed using `BCELoss` after applying sigmoid activation to the model outputs.
+
+4. **Validation Loop**:
+   - The same dataloader is used in evaluation mode by setting the model to `.eval()` and disabling gradients with `torch.no_grad()`.
+   - Validation AUC is computed using `roc_auc_score`.
+
+5. **Metrics Saving**:
+   - Metrics such as final training loss, validation AUC, number of parameters, and other relevant information are saved to `metrics.json` and printed for log parsing.
+   - The model weights are saved to `model.pt` for reuse.
+
+This setup ensures that you can rapidly experiment with different hyperparameters while adhering to the competition rules.

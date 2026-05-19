@@ -1,0 +1,93 @@
+Given the constraints of the competition, particularly the need to run on CPU in ≤ 90 minutes, we should aim for a lightweight and efficient model architecture. We will use a simple Convolutional Neural Network (CNN) with Batch Normalization and Dropout layers for regularization. This architecture is suitable for small-scale, fast iterations and can be easily adjusted as needed.
+
+We'll assume the following:
+- Mel-spectrograms are preprocessed and saved in a format that can be loaded quickly.
+- Each mel-spectrogram is of size 128x96 (height x width).
+- The dataset is organized into directories, each corresponding to a species label.
+
+Below is a proposed model architecture using TensorFlow/Keras. It includes data loading, preprocessing, training, and evaluation:
+
+```python
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, BatchNormalization, Dropout
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Define the model architecture
+def create_model(input_shape=(128, 96, 3), num_classes=207):
+    model = Sequential([
+        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+
+        Conv2D(64, (3, 3), activation='relu'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+
+        Flatten(),
+        Dense(128, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.5),
+
+        Dense(num_classes, activation='sigmoid')  # Multi-label classification
+    ])
+    
+    model.compile(optimizer=Adam(learning_rate=0.001),
+                  loss='binary_crossentropy',
+                  metrics=['accuracy'])
+    return model
+
+# Data loading and preprocessing
+data_dir = "/home/carme/birdclef-data"
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2  # Use 20% of the data for validation
+)
+
+train_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(128, 96),
+    batch_size=32,
+    class_mode='binary',  # Multi-label classification
+    subset='training'
+)
+
+validation_generator = train_datagen.flow_from_directory(
+    data_dir,
+    target_size=(128, 96),
+    batch_size=32,
+    class_mode='binary',
+    subset='validation'
+)
+
+# Create and compile the model
+model = create_model()
+
+# Train the model
+history = model.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples // train_generator.batch_size,
+    validation_data=validation_generator,
+    validation_steps=validation_generator.samples // validation_generator.batch_size,
+    epochs=10  # Adjust number of epochs as needed
+)
+
+# Evaluate the model
+loss, accuracy = model.evaluate(validation_generator)
+print(f"Validation Loss: {loss}")
+print(f"Validation Accuracy: {accuracy}")
+
+# Save the model
+model.save('birdclef_model.h5')
+```
+
+### Explanation:
+- **Model Architecture**: The CNN consists of two convolutional layers followed by max-pooling and dropout for regularization. It ends with a fully connected layer and an output layer using a sigmoid activation function to handle multi-label classification.
+- **Data Loading**: We use `ImageDataGenerator` for loading and augmenting the data. This is efficient for handling image-like inputs such as mel-spectrograms.
+- **Training Loop**: The model is trained over 10 epochs, which should be sufficient for a small-scale iteration. Adjust the number of epochs based on the validation performance.
+- **Evaluation**: The model's performance is evaluated using validation loss and accuracy.
+
+This setup ensures that we can quickly iterate over different architectures and parameters while respecting the competition constraints.

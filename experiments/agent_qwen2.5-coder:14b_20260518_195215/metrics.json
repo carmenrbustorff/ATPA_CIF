@@ -1,0 +1,25 @@
+{
+  "status": "started",
+  "llm_name": "qwen2.5-coder:14b",
+  "model": "efficientnet_torch",
+  "config": {
+    "model": "efficientnet_torch",
+    "epochs": "10",
+    "batch_size": "32",
+    "lr": "0.0005",
+    "weight_decay": "0.0001",
+    "val_split": "0.2",
+    "augment": "True",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "agent_qwen2.5-coder:14b_20260518_195215",
+    "llm_name": "qwen2.5-coder:14b",
+    "seed": "42"
+  },
+  "best_val_auc": null,
+  "best_epoch": null,
+  "epochs_completed": 0,
+  "epoch_log": [],
+  "early_stopped": false,
+  "error_message": null
+}

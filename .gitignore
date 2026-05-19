@@ -15,7 +15,6 @@ build/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
 
 # Experiment artefacts (keep the directory, ignore generated files)
 experiments/iter_*/

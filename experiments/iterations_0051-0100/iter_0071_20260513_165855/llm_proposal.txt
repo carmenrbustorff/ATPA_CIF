@@ -1,0 +1,170 @@
+Certainly! Below is the proposed PyTorch model architecture with a systematic hyperparameter approach based on the iteration number. The script includes the necessary imports, data loading, model definition, training loop, validation, and metric saving as per the guidelines.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Constants
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Hyperparameter selection based on iteration number
+iteration = 20  # Example iteration number
+batch_size_options = [8, 16, 32]
+learning_rate_options = [0.001, 0.0001, 0.00001]
+conv_depth_options = [2, 3, 4]
+dropout_options = [0.0, 0.2, 0.5]
+
+batch_size = batch_size_options[iteration % 3]
+lr = learning_rate_options[iteration % 3]
+num_convs = conv_depth_options[iteration % 3]
+dropout_rate = dropout_options[iteration % 3]
+
+# DataLoader
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes=234, num_convs=3, dropout_rate=0.5):
+        super(BirdCLEFModel, self).__init__()
+        layers = []
+        in_channels = 1
+        for i in range(num_convs):
+            out_channels = (i + 1) * 32
+            layers.extend([
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2)
+            ])
+            in_channels = out_channels
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_channels, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, num_classes)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x)
+        x = self.classifier(x)
+        return torch.sigmoid(x)
+
+# Model initialization
+model = BirdCLEFModel(num_convs=num_convs, dropout_rate=dropout_rate).to('cuda')
+
+# Training setup
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.001)
+epochs = 2
+
+# Training loop
+def train_model(model, dataloader, criterion, optimizer, epochs):
+    model.train()
+    total_loss = 0
+    batch_count = 0
+    
+    for epoch in range(epochs):
+        for inputs, labels in tqdm(dataloader):
+            if batch_count >= 10:  # Limit to 10 batches (first ~5000 samples)
+                break
+            
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            print(f"Epoch {epoch+1}/{epochs}, Batch {batch_count+1}, Loss: {loss.item()}")
+            
+            torch.cuda.empty_cache()
+            batch_count += 1
+    
+    return total_loss / (batch_count * epochs)
+
+# Validation function
+def validate_model(model, dataloader):
+    model.eval()
+    all_labels = []
+    all_preds = []
+    
+    with torch.no_grad():
+        for inputs, labels in tqdm(dataloader):
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            outputs = model(inputs)
+            
+            all_labels.append(labels.cpu().numpy())
+            all_preds.append(outputs.cpu().numpy())
+    
+    from sklearn.metrics import roc_auc_score
+    all_labels = np.concatenate(all_labels)
+    all_preds = np.concatenate(all_preds)
+    final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+    
+    return final_auc
+
+# Training and validation
+train_loss = train_model(model, train_loader, criterion, optimizer, epochs)
+
+# Switch to evaluation mode for the same dataloader
+train_loader.dataset.set_mode('eval')  # Assuming dataset has a method to switch modes
+val_auc = validate_model(model, train_loader)
+
+# Metrics calculation and saving
+num_params = sum(p.numel() for p in model.parameters())
+training_samples = batch_count * batch_size
+eval_samples = training_samples  # Since we used the same loader for validation
+
+metrics = {
+    "final_train_loss": train_loss,
+    "final_auc": val_auc,
+    "num_params": num_params,
+    "epochs_trained": epochs,
+    "batch_size": batch_size,
+    "training_samples": training_samples,
+    "eval_samples": eval_samples
+}
+
+print("METRICS:", json.dumps(metrics))
+torch.save(model.state_dict(), 'model.pt')
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+```
+
+### Explanation:
+
+1. **Model Architecture**:
+   - The model consists of convolutional layers followed by batch normalization and ReLU activation.
+   - It includes `num_convs` number of convolutional blocks (each with Conv2d, BatchNorm2d, ReLU, MaxPool2d).
+   - An adaptive average pooling layer (`AdaptiveAvgPool2d`) is used for robust dimension handling.
+   - A fully connected layer (`Linear`) reduces the dimensions to 128 before the final output layer which predicts probabilities for 234 bird species using a sigmoid activation.
+
+2. **Hyperparameter Selection**:
+   - The script systematically changes hyperparameters like batch size, learning rate, number of convolutional layers, and dropout based on the iteration number modulo 3.
+   
+3. **Training Loop**:
+   - The training loop runs for 2 epochs and limits to 10 batches for quick feedback.
+   - Loss is reported per batch, and `torch.cuda.empty_cache()` is called after each batch to prevent GPU fragmentation.
+
+4. **Validation**:
+   - Validation uses the same DataLoader but in evaluation mode (`model.eval()`) with `torch.no_grad()` to avoid tracking gradients.
+   - AUC score is computed using `roc_auc_score` from scikit-learn.
+
+5. **Metrics and Model Saving**:
+   - Metrics such as training loss, validation AUC, number of parameters, batch size, and sample counts are calculated and saved in a JSON file (`metrics.json`).
+   - The model weights are saved to `model.pt`.
+
+This setup ensures rapid experimentation while adhering to the competition rules and constraints.

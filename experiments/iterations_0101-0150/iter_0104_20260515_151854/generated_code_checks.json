@@ -1,0 +1,6 @@
+{
+  "blockers": [
+    "Uses set_mode(), but BirdCLEFDataset has no set_mode() API."
+  ],
+  "warnings": []
+}

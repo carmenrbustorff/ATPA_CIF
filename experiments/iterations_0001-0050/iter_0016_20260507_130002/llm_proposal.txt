@@ -1,0 +1,103 @@
+To address the constraints of the BirdCLEF+ 2026 competition, we need an efficient and scalable model that can handle multi-label classification on mel-spectrograms. Given the requirement to run efficiently on CPU within a short time frame, a ResNet-like architecture is suitable due to its balance between performance and computational efficiency.
+
+Below is a proposed model architecture using TensorFlow/Keras, along with data loading, training loop, and evaluation code. This setup assumes that the mel-spectrograms are preprocessed and stored in a format that can be easily loaded (e.g., NumPy arrays or TFRecords).
+
+### Model Architecture
+
+The proposed model is a lightweight ResNet variant adapted for multi-label classification:
+
+```python
+import tensorflow as tf
+from tensorflow.keras import layers, models
+
+def create_resnet_model(input_shape=(128, 128, 1), num_classes=234):
+    def residual_block(x, filters, kernel_size=3, stride=1, activation='relu'):
+        shortcut = x
+        if stride != 1 or shortcut.shape[-1] != filters:
+            shortcut = layers.Conv2D(filters, 1, strides=stride)(shortcut)
+            shortcut = layers.BatchNormalization()(shortcut)
+
+        x = layers.Conv2D(filters, kernel_size, strides=stride, padding='same')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Activation(activation)(x)
+        
+        x = layers.Conv2D(filters, kernel_size, strides=1, padding='same')(x)
+        x = layers.BatchNormalization()(x)
+
+        x = layers.Add()([x, shortcut])
+        x = layers.Activation(activation)(x)
+        return x
+
+    inputs = layers.Input(shape=input_shape)
+    
+    # Initial Convolutional Layer
+    x = layers.Conv2D(16, 7, strides=2, padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+    x = layers.MaxPooling2D(pool_size=(3, 3), strides=2, padding='same')(x)
+
+    # Residual Blocks
+    filters_list = [16, 32, 64]
+    for filters in filters_list:
+        x = residual_block(x, filters=filters)
+        x = layers.MaxPooling2D(pool_size=(2, 2), strides=2, padding='same')(x)
+
+    # Final Layers
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dense(512, activation='relu')(x)
+    outputs = layers.Dense(num_classes, activation='sigmoid')(x)  # Multi-label output
+
+    model = models.Model(inputs=inputs, outputs=outputs)
+    return model
+```
+
+### Data Loading and Training Loop
+
+Assuming the data is preprocessed into NumPy arrays or TFRecords, we can use `tf.data` API to efficiently load and augment the data.
+
+```python
+import numpy as np
+
+# Dummy function for loading data - replace with actual implementation
+def load_data():
+    # Placeholder: Load your data here
+    x_train = np.random.rand(1000, 128, 128, 1)  # Example shape (batch_size, height, width, channels)
+    y_train = np.random.randint(0, 2, size=(1000, 234))  # Multi-label targets
+    x_val = np.random.rand(200, 128, 128, 1)   # Validation set
+    y_val = np.random.randint(0, 2, size=(200, 234))
+    return (x_train, y_train), (x_val, y_val)
+
+# Load data
+(x_train, y_train), (x_val, y_val) = load_data()
+
+# Create TensorFlow datasets
+train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(32).prefetch(tf.data.AUTOTUNE)
+val_dataset = tf.data.Dataset.from_tensor_slices((x_val, y_val)).batch(32).prefetch(tf.data.AUTOTUNE)
+
+# Create model
+model = create_resnet_model()
+
+# Compile model
+model.compile(optimizer='adam',
+              loss=tf.keras.losses.BinaryCrossentropy(),
+              metrics=[tf.keras.metrics.AUC(multi_label=True)])
+
+# Train model
+history = model.fit(train_dataset,
+                    epochs=20,
+                    validation_data=val_dataset)
+
+# Evaluate model
+val_loss, val_auc = model.evaluate(val_dataset)
+print(f"Validation Loss: {val_loss}, Validation AUC: {val_auc}")
+```
+
+### Explanation
+
+1. **Model Architecture**: The `create_resnet_model` function defines a simple ResNet variant suitable for multi-label classification tasks. It includes residual blocks to facilitate training deep networks and global average pooling to reduce the dimensionality of feature maps before passing them to dense layers.
+
+2. **Data Loading**: The `load_data` function is a placeholder for actual data loading logic. Replace this with code that reads your preprocessed mel-spectrograms and labels efficiently.
+
+3. **Training Loop**: We use TensorFlow's `tf.data.Dataset` API for efficient data loading and augmentation. The model is compiled with an Adam optimizer and binary cross-entropy loss, suitable for multi-label classification. Training metrics include AUC to evaluate the performance of the model on validation data.
+
+This setup should allow you to quickly iterate over different models and configurations while adhering to the competition's constraints.
