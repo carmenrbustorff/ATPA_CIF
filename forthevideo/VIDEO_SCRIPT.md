@@ -7,31 +7,14 @@
 
 ---
 
-## PART 1: INTRODUCTION & SETUP (2 minutes)
+## PART 1: INTRODUCTION & SETUP (1 minute)
 
 ### Scene 1: Title Card
 **Narration:**
 "Welcome to our BirdCLEF+ 2026 presentation. I'm Carmen Bustorff Silva, working with Inês Martins and Francisca Menano on the Advanced Topics in Predictive Analytics project.
+I will guide you through our workflow that is detailed on the report
 
-Our goal: build an **autonomous AI research agent** that automatically discovers deep learning architectures for bird species classification from audio.
-
-The key innovation: instead of manually tuning models, we let an LLM and automated loop do the architecture search."
-
-**On Screen:**
-- Title: "ATPA_CIF: Autonomous Research Agent for BirdCLEF+ 2026"
 - Show repository structure quickly
-
----
-
-## PART 2: PROBLEM & CONTEXT (3 minutes)
-
-### Scene 2: The Challenge
-**Narration:**
-"BirdCLEF+ 2026 is a Kaggle competition focused on audio classification. We're given mel-spectrograms of bird calls and must classify up to 206 bird species.
-
-The challenge isn't just accuracy—it's efficiency. With 206 classes and an imbalanced dataset, we need smart architecture choices and robust training.
-
-Our solution: automate the process."
 
 **On Screen:**
 ```
@@ -40,7 +23,7 @@ ls -la
 # Show: agent.py, models.py, config.py, data_loader.py
 ```
 
-### Scene 3: The Architecture
+### Scene 2: The Architecture
 **Narration:**
 "Our autonomous research agent implements a 7-step iterative cycle:
 
@@ -52,17 +35,11 @@ ls -la
 6. **LLM-Driven Analysis** - Send results back to LLM
 7. **Iteration** - Improve and repeat
 
-This cycle runs 200+ times, each time the agent learns from previous results."
+This cycle ran 200+ times, each time the agent learns from previous results."
 
 **On Screen:**
-- Display ASCII diagram of the 7-step cycle
 - Show agent.py main loop (lines 1037-1100)
 
----
-
-## PART 3: DEMO - RUNNING THE AGENT (10-12 minutes)
-
-### Scene 4: Environment Setup
 **Narration:**
 "Let's see the agent in action. First, we activate our Python environment and check the GPU."
 
@@ -81,84 +58,26 @@ python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}'); print(f
 
 **Narration:**
 "We're running on an NVIDIA L4 GPU with 24GB VRAM. This is shared by our 3-person team."
-
 ---
 
 ### Scene 5: Demo Run
 **Narration:**
-"Let's start the agent with 2 iterations for this demo."
+"Let's start the agent with 1 iteration for this demo."
 
 **Terminal Command:**
 ```bash
-python agent_demo.py --mode demo
+ python3 agent.py --iterations 1 --model qwen2.5-coder:14b --data-dir /mnt/disks/data/birdclef
 ```
 
 **What will happen (narrate as it runs):**
 
-**Iteration 1 (5-7 minutes):**
+**Iteration 
 ```
-════════════════════════════════════════════════════════════════════════════════
-  BirdCLEF+ 2026 AUTONOMOUS RESEARCH AGENT
-════════════════════════════════════════════════════════════════════════════════
-
-████████████████████████████████████████████████████████████████████████████████
-  ► INITIALIZING AGENT
-████████████████████████████████████████████████████████████████████████████████
-
-  Dataset:     ~/birdclef-data (206 bird species)
-  GPU:         NVIDIA L4 (24GB VRAM)
-  Torch:       PyTorch with automatic mixed precision
-  Model:       EfficientNet-B1 with custom head
 
 ████████████████████████████████████████████████████████████████████████████████
   ► RUNNING AGENT LOOP
 ████████████████████████████████████████████████████████████████████████████████
 
-============================================================
-ITERATION 1 / 2  [iter_0000_20260519_161000]
-============================================================
-[INFO] Step 1: Exploring data…
-[INFO] Found 7000 audio files across 206 species directories.
-[INFO] Total duration estimate: 35000 seconds (~9.7 hours)
-
-[INFO] Step 2: Requesting architecture proposal from LLM (deepseek-r1:8b)…
-[INFO] LLM is thinking about the best architecture...
-[INFO] LLM proposal saved.
-
-[INFO] Step 3: Extracting code from LLM response…
-[INFO] Found 1 code block in LLM response.
-
-[INFO] Step 4: Executing training script (timeout: 3600s)…
-[INFO] Running: /path/to/experiments/iter_0000_20260519_161000/train.py
-
-Epoch 1/40, Train Loss: 0.5231
-Epoch 1/40, Validation AUC: 0.5843
---> Saved new best checkpoint with AUC: 0.5843
-
-Epoch 2/40, Train Loss: 0.4932
-Epoch 2/40, Validation AUC: 0.6124
---> Saved new best checkpoint with AUC: 0.6124
-
-[... more epochs ...]
-
-Epoch 20/40, Train Loss: 0.2841
-Epoch 20/40, Validation AUC: 0.9234
---> Saved new best checkpoint with AUC: 0.9234
-
-Early Stopping triggered after 5 epochs without improvement.
-
-[INFO] Script completed in 342.5 s.
-
-[INFO] Step 5: Capturing results…
-[INFO] Loaded metrics.json: {'final_auc': 0.9234, 'best_auc': 0.9234, 'epochs_trained': 20}
-
-[INFO] Step 6: Sending results to LLM for analysis…
-[INFO] LLM analysis: "Excellent AUC of 0.9234! The EfficientNet-B1 with Focal Loss 
-  is working well. For iteration 2, consider adjusting the dropout or learning rate..."
-[INFO] LLM analysis saved.
-
-[INFO] Iteration 1 complete. Best AUC so far: 0.9234
-```
 
 **Narration for this section:**
 "Notice what happened:
@@ -168,55 +87,7 @@ Early Stopping triggered after 5 epochs without improvement.
 
 The model began with 58% AUC and improved to 92% in just 20 epochs. Early stopping prevented overfitting.
 
-The agent captured the best checkpoint automatically. Now let's see iteration 2."
-
----
-
-**Iteration 2 (5-7 minutes):**
-
-```
-============================================================
-ITERATION 2 / 2  [iter_0001_20260519_161350]
-============================================================
-[INFO] Step 1: Exploring data…
-[INFO] Found 7000 audio files across 206 species directories.
-
-[INFO] Step 2: Requesting architecture proposal from LLM…
-[INFO] LLM is thinking: "The previous AUC was 0.9234. Let me suggest 
-  increasing regularization and adjusting the learning rate schedule..."
-
-[INFO] LLM proposal saved.
-[INFO] Step 3: Extracting code from LLM response…
-
-[INFO] Step 4: Executing training script…
-
-Epoch 1/40, Train Loss: 0.4892
-Epoch 1/40, Validation AUC: 0.6012
---> Saved new best checkpoint with AUC: 0.6012
-
-[... training progresses ...]
-
-Epoch 22/40, Train Loss: 0.2654
-Epoch 22/40, Validation AUC: 0.9456
---> Saved new best checkpoint with AUC: 0.9456
-
-Early Stopping triggered.
-
-[INFO] Step 5: Capturing results…
-[INFO] Loaded metrics.json: {'final_auc': 0.9456, 'best_auc': 0.9456, 'epochs_trained': 22}
-
-[INFO] Step 6: Sending results to LLM for analysis…
-[INFO] LLM analysis: "Great improvement! 94.56% AUC. The increased L2 regularization
-  helped. For iteration 3, consider using label smoothing or..."
-[INFO] LLM analysis saved.
-
-[INFO] Iteration 2 complete. Best AUC so far: 0.9456
-```
-
-**Narration:**
-"Iteration 2 improved to 94.56% AUC! The agent learned from iteration 1 and made strategic changes. This is the autonomous loop in action—no human manual tuning."
-
----
+The agent captured the best checkpoint automatically."
 
 ### Scene 6: Results Summary
 **Terminal Command:**
@@ -250,11 +121,11 @@ python agent_demo.py --mode summary
 
 ---
 
-## PART 4: DESIGN SOLUTIONS (5-7 minutes)
+## PART 4: DESIGN SOLUTIONS (5-7 minutes) - while agent runs
 
 ### Scene 7: Core Design Decisions
 **Narration:**
-"Let's look at the key design decisions that made this work."
+"While the agent is running, let's look at the key design decisions that made this work."
 
 **Show code snippets with narration:**
 
@@ -310,7 +181,7 @@ else:
 
 ---
 
-## PART 5: CHALLENGES & SOLUTIONS (3-4 minutes)
+## PART 5: CHALLENGES & SOLUTIONS (2 minutes)
 
 ### Scene 8: Technical Challenges
 **Narration:**
@@ -328,7 +199,7 @@ except RuntimeError as e:
         continue
 ```
 **Narration:**
-"The GPU only has 24GB shared by 3 users. We wrapped training in try-except to catch OOM errors and skip problematic batches gracefully."
+"The GPU only has 24GB shared by 3 users. We wrapped training in try-except to catch OOM errors and skip problematic batches gracefully without crashing."
 
 **Challenge 2: LLM Code Generation Failures**
 ```python
@@ -350,7 +221,7 @@ auc = roc_auc_score(y_true_multi[:, valid_classes], y_pred[:, valid_classes], av
 
 **Challenge 4: Slow Convergence**
 **Narration:**
-"Early on, models took 30+ epochs to converge. We addressed this by combining three techniques: Focal Loss, SpecAugment, and Mixup. These together accelerated convergence to 15-25 epochs."
+"Early on, models took 30+ epochs to converge. We addressed this by combining three techniques: Focal Loss, SpecAugment, and Mixup. These together accelerated convergence to 10-25 epochs."
 
 ---
 
@@ -365,8 +236,6 @@ cat results_report.md | head -100
 
 **Narration:**
 "Let me generate our full results report. This summarizes 202 experiments in one document."
-
-**Show in terminal or display as PDF:**
 
 **Narration:**
 "Looking at our results:
@@ -427,15 +296,9 @@ Our approach achieved competitive scores on Kaggle's leaderboard, validating tha
 
 **Show (if available):**
 ```bash
-# List best model
-find experiments -name "model.pt" -path "*iter_0200*"
-
 # Show model size
 ls -lh experiments/iterations_0151-0200/iter_0200_20260518_092346/model.pt
 ```
-
-**Narration:**
-"Our best model is just 40MB—efficient enough for real-time inference. This demonstrates that we've found a sweet spot between model capacity and computational efficiency."
 
 ---
 
@@ -469,16 +332,6 @@ Unlike traditional AutoML frameworks, our agent uses LLM reasoning to propose ar
 
 This project demonstrates how AI agents can augment human research—we didn't write 200+ training scripts. The agent did, learning from each iteration."
 
-### Scene 13: Closing
-**Narration:**
-"Thank you for watching. This autonomous research agent is open-source and available on GitHub. If you're working on similar competitions, feel free to adapt our framework.
-
-Questions?"
-
-**End with:**
-- Slide: Repository link (github.com/carmenrbustorff/ATPA_CIF)
-- Team names: Carmen Bustorff Silva, Inês Martins, Francisca Menano
-- Date and institution
 
 ---
 

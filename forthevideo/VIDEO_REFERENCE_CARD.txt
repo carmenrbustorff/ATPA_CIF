@@ -25,11 +25,6 @@ SHOW STATISTICS ONLY:
   VIDEO STRUCTURE (20-25 MINUTES)
 ═════════════════════════════════════════════════════════════════════════════════
 
- 0:00-0:30   │ TITLE CARD
-             │ "Welcome, team intro, project title"
-
- 0:30-3:30   │ PROBLEM & CONTEXT
-             │ "BirdCLEF+ challenge, 206 species, imbalanced data"
 
  3:30-15:00  │ ⭐ DEMO - AGENT RUNNING (main section!)
              │ "Run agent_demo.py --mode demo"
@@ -51,12 +46,8 @@ SHOW STATISTICS ONLY:
 
 21:30-23:30  │ RESULTS & METRICS
              │ Show: results_reporter.py output
-             │ • Best AUC: 0.9608
-             │ • Best architecture: EfficientNet-B1
-             │ • 202 iterations total
+             │ metrics.json
 
-23:30-25:00  │ CONCLUSION
-             │ Key takeaways & innovation
 
 ═════════════════════════════════════════════════════════════════════════════════
   KEY METRICS TO MENTION

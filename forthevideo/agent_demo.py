@@ -39,14 +39,14 @@ def print_section(text: str) -> None:
 
 def print_result_box(iteration: int, auc: float, is_best: bool = False) -> None:
     """Print formatted iteration result."""
-    marker = "🏆 NEW BEST" if is_best else "✓ Result"
+    marker = " NEW BEST" if is_best else " Result"
     print(f"  {marker:12} │ Iteration {iteration:3d} │ AUC: {auc:.4f}")
 
 def display_summary_statistics() -> None:
     """Display summary of all experiments run so far."""
     state = load_state(EXPERIMENTS_DIR)
     
-    print_section("📊 EXPERIMENT SUMMARY")
+    print_section(" EXPERIMENT SUMMARY")
     
     if state["history"]:
         print(f"  Total Iterations:  {state['iteration']:3d}")
@@ -100,10 +100,10 @@ def main_demo() -> None:
     print()
     
     # Run the main agent
-    print_section("🔄 RUNNING AGENT LOOP")
+    print_section(" RUNNING AGENT LOOP")
     run_agent(
-        num_iterations=3,  # Demo with 3 iterations
-        model_name="deepseek-r1:8b",
+        num_iterations=1,  # Demo with 1 iterations
+        model_name="qwen2.5-coder:14b",
         data_dir=Path(os.path.expanduser("~/birdclef-data")),
         exec_timeout=3600,  # 1 hour timeout for demo
     )
@@ -111,10 +111,10 @@ def main_demo() -> None:
     # Display final summary
     state_after = load_state(EXPERIMENTS_DIR)
     print_banner("DEMO COMPLETE", char="═")
-    print_section("📈 FINAL STATISTICS")
+    print_section(" FINAL STATISTICS")
     
     if state_after["best_auc"] > state_before["best_auc"]:
-        print(f"  ✨ NEW BEST AUC FOUND!")
+        print(f"   NEW BEST AUC FOUND!")
         print(f"     Previous best: {state_before['best_auc']:.4f}")
         print(f"     New best:      {state_after['best_auc']:.4f}")
         print(f"     Improvement:   +{state_after['best_auc'] - state_before['best_auc']:.4f}")
@@ -127,7 +127,7 @@ def main_demo() -> None:
     
     display_summary_statistics()
     
-    print_section("💾 ARTIFACTS SAVED")
+    print_section(" ARTIFACTS SAVED")
     print(f"  Experiments directory: {EXPERIMENTS_DIR}")
     print(f"  Each iteration contains:")
     print(f"    - llm_proposal.txt  : LLM's architecture suggestion")
