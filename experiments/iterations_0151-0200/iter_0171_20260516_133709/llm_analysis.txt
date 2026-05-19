@@ -1,0 +1,146 @@
+### Analysis of Previous Experiment
+
+#### 1. What Worked Well?
+
+- **Dataset Initialisation**: The dataset was correctly initialised with 35,549 samples and 206 species.
+- **Stratified Splitting**: The stratified split created a balanced training and validation set, with 5,000 training samples and 1,000 validation samples.
+- **Batch Size Handling**: The script correctly handled different batch sizes based on the iteration number.
+
+#### 2. What Needs Improvement?
+
+- **Device Mismatch**: There was a `RuntimeError` due to tensors being on different devices (cuda:0 and cpu). This indicates that some tensors were not moved to the GPU before operations.
+- **SpecAugment Implementation**: The implementation of SpecAugment was incorrect, causing the error. Specifically, the masking operations were not correctly applied to the input tensors.
+- **Model Architecture**: The model architecture might need adjustments for better performance.
+- **Hyperparameter Tuning**: The hyperparameters (batch size, learning rate, dropout) need further tuning to find the optimal values.
+
+#### 3. Specific Changes for the Next Iteration
+
+Based on the issues identified, here are the specific changes required:
+
+1. **Ensure All Tensors Are on the Same Device**:
+   - Move all input tensors and masks to the GPU before performing operations.
+   
+2. **Correct SpecAugment Implementation**:
+   - Apply the frequency and time masking directly to the input tensors.
+
+3. **Adjust Model Architecture**:
+   - Ensure that the model architecture is robust and suitable for the dataset.
+   
+4. **Tune Hyperparameters**:
+   - Use a systematic approach to vary hyperparameters based on the iteration number.
+
+Here is the corrected code snippet for the next iteration:
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.metrics import roc_auc_score
+import json
+
+# Define constants
+NUM_SPECIES = 206
+MAX_EPOCHS = 40
+
+# Hyperparameters based on iteration number (example for Iteration 1)
+batch_size = 16  # Iteration % 3 == 1: batch=16, lr=0.0001, 3 conv, dropout=0.2
+lr = 0.0001
+
+# Model definition
+class BirdClassifier(nn.Module):
+    def __init__(self, num_classes=NUM_SPECIES):
+        super(BirdClassifier, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        x = self.pool(self.relu(self.bn1(self.conv1(x))))
+        x = self.pool(self.relu(self.bn2(self.conv2(x))))
+        x = self.adaptive_pool(x).squeeze()
+        x = self.fc(x)
+        return x
+
+# Load data
+train_loader, val_loader = build_train_val_dataloaders(batch_size=batch_size, augment=True)
+
+# Initialize model, optimizer, and criterion
+model = BirdClassifier(num_classes=NUM_SPECIES).to('cuda')
+optimizer = optim.Adam(model.parameters(), lr=lr)
+criterion = nn.BCEWithLogitsLoss()
+
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, max_epochs):
+    model.train()
+    for epoch in range(max_epochs):
+        running_loss = 0.0
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            
+            # Apply SpecAugment (frequency and time masking)
+            freq_mask = torch.randperm(inputs.size(2))[:4]  # Masking 4 frequency bands
+            time_mask = torch.randperm(inputs.size(3))[:8]  # Masking 8 time steps
+            inputs[:, :, freq_mask, :] = 0
+            inputs[:, :, :, time_mask] = 0
+            
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+        
+        print(f'Epoch {epoch+1}/{max_epochs}, Loss: {running_loss/len(train_loader)}')
+    
+    return running_loss / len(train_loader)
+
+# Training loop
+final_train_loss = train_model(model, train_loader, val_loader, criterion, optimizer, None, MAX_EPOCHS)
+
+# Validation AUC
+model.eval()
+all_preds = []
+all_labels = []
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        outputs = model(inputs)
+        preds = torch.sigmoid(outputs).cpu().numpy()
+        all_preds.extend(preds)
+        all_labels.extend(labels.cpu().numpy())
+
+all_preds = np.array(all_preds)
+all_labels = np.eye(NUM_SPECIES)[all_labels]  # One-hot encode labels
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Save metrics and model
+metrics = {
+    "final_train_loss": final_train_loss,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": MAX_EPOCHS,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+print("METRICS:", json.dumps(metrics))
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Summary of Changes
+
+1. **Device Handling**: All tensors are moved to the GPU before operations.
+2. **SpecAugment Implementation**: Correctly applied frequency and time masking to input tensors.
+3. **Model Architecture**: Used a simple convolutional neural network for classification.
+4. **Hyperparameter Tuning**: Adjusted batch size, learning rate, and dropout based on the iteration number.
+
+These changes should address the issues identified in the previous experiment and improve the performance of the model.

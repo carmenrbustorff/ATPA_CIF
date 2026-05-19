@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iter_0021_20260507_142006/train.py\", line 13, in <module>\n    from dataset import get_dataloader\nModuleNotFoundError: No module named 'dataset'\n",
+  "timed_out": false,
+  "duration_s": 1.83
+}

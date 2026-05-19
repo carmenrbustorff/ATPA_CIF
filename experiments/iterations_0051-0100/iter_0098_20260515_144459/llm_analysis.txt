@@ -1,0 +1,177 @@
+### 1. What Worked Well?
+
+Based on the provided experiment results, there are no explicit indications of what worked well as the script crashed before any meaningful training could occur. However, let's infer some positive aspects from the context and previous iterations:
+
+- **Imports and Setup**: The code correctly imports necessary libraries and sets up the data loader.
+- **Model Architecture**: The architecture follows the specified structure with Conv-BatchNorm-ReLU layers followed by AdaptiveAvgPool2d and linear layers, which is a robust approach for multi-label classification tasks.
+- **Training Loop Structure**: The training loop structure appears to be correct, including moving the model to CUDA, handling batches, and using BCELoss with sigmoid activation.
+
+### 2. What Needs Improvement?
+
+The primary issue indicated by the error message is related to how the dataset is being indexed:
+
+```
+TypeError: Cannot index by location index with a non-integer key
+```
+
+This suggests that there might be an issue with how the `get_dataloader` function or the dataset class is handling indices. Specifically, the error occurs when trying to access the metadata using a non-integer key, which implies that the indexing mechanism in the dataset might not be correctly implemented.
+
+### 3. Specific Changes for the Next Iteration
+
+To address the issue and improve the model's performance, we need to focus on several areas:
+
+#### a. Fixing Dataset Indexing
+Ensure that the dataset is correctly handling indices. This involves checking how the `get_dataloader` function initializes the dataset and how the `__getitem__` method in the dataset class handles indexing.
+
+**Code Snippet:**
+```python
+# Ensure that the dataset class correctly accesses metadata using integer indices.
+class BirdCLEFDataset:
+    def __init__(self, data_dir, metadata_file):
+        self.metadata = pd.read_csv(metadata_file)
+        # Ensure that indices are integers
+        self.metadata.index = range(len(self.metadata))
+
+    def __len__(self):
+        return len(self.metadata)
+
+    def __getitem__(self, idx):
+        row = self.metadata.iloc[idx]  # Ensure idx is an integer
+        # Load audio file and create mel-spectrogram
+        # ...
+        return inputs, labels
+
+# Example usage in get_dataloader function
+def get_dataloader(data_dir, metadata_file, batch_size):
+    dataset = BirdCLEFDataset(data_dir, metadata_file)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return dataloader
+```
+
+#### b. Systematic Hyperparameter Exploration
+Given that the previous iteration resulted in a crash, we should explore different hyperparameters to ensure stability and potentially improve performance.
+
+**Code Snippet:**
+```python
+# Define hyperparameters based on the current iteration number
+iteration = 4
+
+# Batch size selection
+if iteration % 3 == 0:
+    batch_size = 8
+elif iteration % 3 == 1:
+    batch_size = 16
+else:
+    batch_size = 32
+
+# Learning rate selection
+if iteration % 3 == 0:
+    lr = 0.001
+elif iteration % 3 == 1:
+    lr = 0.0001
+else:
+    lr = 0.00001
+
+# Architecture depth selection
+if iteration % 3 == 0:
+    conv_layers = [
+        nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+        nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+    ]
+elif iteration % 3 == 1:
+    conv_layers = [
+        nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+        nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+    ]
+else:
+    conv_layers = [
+        nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+        nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+        nn.Conv2d(128, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+    ]
+
+# Model definition
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes):
+        super(BirdCLEFModel, self).__init__()
+        self.conv_layers = nn.Sequential(*conv_layers)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(256 if iteration % 3 == 2 else 128, num_classes)
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.avg_pool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+
+# Instantiate the model
+model = BirdCLEFModel(num_classes=207).to('cuda')
+
+# Loss and optimizer
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=lr)
+
+# Training loop
+train_loader = get_dataloader(data_dir="/home/carme/birdclef-data", metadata_file="metadata.csv", batch_size=batch_size)
+model.train()
+
+for epoch in range(6):
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+    
+    print(f"Epoch {epoch+1}, Train Loss: {loss.item()}")
+
+# Validation and metrics capture
+model.eval()
+val_loader = get_dataloader(data_dir="/home/carme/birdclef-data", metadata_file="metadata.csv", batch_size=batch_size)
+all_preds, all_labels = [], []
+
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        outputs = model(inputs)
+        preds = torch.sigmoid(outputs).cpu().numpy()
+        all_preds.append(preds)
+        all_labels.append(labels.cpu().numpy())
+
+all_preds = np.concatenate(all_preds)
+all_labels = np.concatenate(all_labels)
+
+auc_score = roc_auc_score(all_labels, all_preds, average='weighted')
+
+# Save metrics
+metrics = {
+    "final_train_loss": loss.item(),
+    "final_auc": auc_score,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": 6,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+
+# Save model checkpoint
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Summary
+
+1. **Fix Dataset Indexing**: Ensure that the dataset class correctly handles integer indices.
+2. **Systematic Hyperparameter Exploration**: Explore different batch sizes, learning rates, and architecture depths based on the current iteration number.
+3. **Stable Training Loop**: Implement a stable training loop with proper handling of inputs and labels.
+
+By addressing these issues, we can ensure that the model trains correctly and captures meaningful metrics for evaluation.

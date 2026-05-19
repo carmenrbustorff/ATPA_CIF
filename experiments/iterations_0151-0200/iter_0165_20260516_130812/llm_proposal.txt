@@ -1,0 +1,144 @@
+Here's the proposed PyTorch-based model architecture for BirdCLEF+ 2026 – Track B, incorporating transfer learning with a pre-trained vision model adapted for 1-channel spectrograms, along with a multi-label classification head. The script also includes a training loop that adheres to all the critical rules provided.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import soundfile as sf
+import numpy as np
+from sklearn.metrics import roc_auc_score
+
+# Define hyperparameters
+NUM_SPECIES = 206
+BATCH_SIZE = 128
+LEARNING_RATE = 0.0001
+MAX_EPOCHS = 40
+DROPOUT_RATE = 0.5
+WEIGHT_DECAY = 1e-4
+
+# Load data
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=BATCH_SIZE,
+    augment=True,
+    val_split=0.2,
+    num_workers=4,
+    pin_memory=True
+)
+
+# Define the model
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species):
+        super(BirdCLEFModel, self).__init__()
+        # Use EfficientNet B0 pre-trained on ImageNet and adapt for 1-channel input
+        self.base_model = timm.create_model('efficientnet_b0', pretrained=True)
+        self.base_model.conv_stem[0] = nn.Conv2d(1, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+        
+        # Freeze the base model
+        for param in self.base_model.parameters():
+            param.requires_grad = False
+        
+        # Add a classification head
+        num_features = self.base_model.classifier.in_features
+        self.classifier = nn.Sequential(
+            nn.Dropout(DROPOUT_RATE),
+            nn.Linear(num_features, num_species)
+        )
+    
+    def forward(self, x):
+        features = self.base_model(x)
+        outputs = self.classifier(features)
+        return outputs
+
+# Initialize model, loss function, optimizer, and scaler
+model = BirdCLEFModel(NUM_SPECIES).to('cuda')
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+scaler = torch.cuda.amp.GradScaler()
+
+# Training loop
+best_val_auc = 0.0
+early_stopping_counter = 0
+for epoch in range(MAX_EPOCHS):
+    model.train()
+    total_loss = 0.0
+    
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{MAX_EPOCHS}"):
+        inputs, labels = inputs.to('cuda'), labels.to('cuda', dtype=torch.float32)
+        
+        optimizer.zero_grad()
+        
+        with torch.cuda.amp.autocast():
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+        
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        
+        total_loss += loss.item() * inputs.size(0)
+    
+    avg_train_loss = total_loss / len(train_loader.dataset)
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for inputs, labels in tqdm(val_loader, desc="Validation"):
+            inputs, labels = inputs.to('cuda'), labels.cpu().numpy()
+            outputs = model(inputs).cpu().sigmoid().numpy()
+            all_preds.append(outputs)
+            all_labels.append(labels)
+    
+    all_preds = np.vstack(all_preds)
+    all_labels = np.hstack(all_labels)
+    val_auc = roc_auc_score(np.eye(NUM_SPECIES)[all_labels], all_preds, average='weighted', multi_class='ovr')
+    
+    print(f"Epoch {epoch+1}/{MAX_EPOCHS} - Train Loss: {avg_train_loss:.4f}, Val AUC: {val_auc:.4f}")
+    
+    # Check for early stopping
+    if val_auc > best_val_auc:
+        best_val_auc = val_auc
+        early_stopping_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        early_stopping_counter += 1
+        if early_stopping_counter >= 5:
+            print("Early stopping triggered.")
+            break
+
+# Save metrics
+metrics = {
+    "final_train_loss": avg_train_loss,
+    "final_auc": best_val_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Key Points:
+- **Model Architecture**: Uses EfficientNet B0 pre-trained on ImageNet and adapted for 1-channel input by changing the first convolutional layer.
+- **Training Loop**: Includes automatic mixed precision (AMP) for faster training and more stable convergence.
+- **Validation**: Computes the validation AUC using `roc_auc_score` with `multi_class='ovr'`.
+- **Early Stopping**: Stops training if the validation AUC does not improve for 5 consecutive epochs.
+- **Metrics Saving**: Saves the final metrics to a JSON file and prints them to stdout.
+
+This architecture and training loop should provide a good starting point for rapid experimentation and hyperparameter tuning.

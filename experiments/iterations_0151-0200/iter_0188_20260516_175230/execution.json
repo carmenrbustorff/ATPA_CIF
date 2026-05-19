@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "2026-05-16 17:53:33,831 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 17:53:36,091 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 17:53:36,115 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 17:53:36,159 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 17:53:36,160 | INFO     | data_loader | Train: 40 batches  |  Val: 8 batches  (batch_size=128)\n2026-05-16 17:53:36,310 | INFO     | timm.models._builder | Loading pretrained weights from Hugging Face hub (timm/efficientnet_b0.ra_in1k)\n2026-05-16 17:53:36,474 | INFO     | httpx | HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b0.ra_in1k/resolve/main/model.safetensors \"HTTP/1.1 302 Found\"\n2026-05-16 17:53:36,482 | INFO     | timm.models._hub | [timm/efficientnet_b0.ra_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.\n2026-05-16 17:53:36,501 | INFO     | timm.models._builder | Converted input conv conv_stem pretrained weights from 3 to 1 channel(s)\nEpoch 1/20, Train Loss: 0.8054\nEpoch 2/20, Train Loss: 0.6269\nEpoch 3/20, Train Loss: 0.5749\nEpoch 4/20, Train Loss: 0.5606\nEpoch 5/20, Train Loss: 0.5544\nEpoch 6/20, Train Loss: 0.5451\nEpoch 7/20, Train Loss: 0.5360\nEpoch 8/20, Train Loss: 0.5230\nEpoch 9/20, Train Loss: 0.5100\nEpoch 10/20, Train Loss: 0.5034\nEpoch 11/20, Train Loss: 0.4895\nEpoch 12/20, Train Loss: 0.4730\nEpoch 13/20, Train Loss: 0.4693\nEpoch 14/20, Train Loss: 0.4610\nEpoch 15/20, Train Loss: 0.4502\nEpoch 16/20, Train Loss: 0.4360\nEpoch 17/20, Train Loss: 0.4271\nEpoch 18/20, Train Loss: 0.4208\nEpoch 19/20, Train Loss: 0.4091\nEpoch 20/20, Train Loss: 0.4036\nFinal Validation AUC: 0.5000\nMETRICS:  {\"final_train_loss\": 0.40360374227166174, \"final_auc\": 0.5, \"num_params\": 4387850, \"epochs_trained\": 20, \"batch_size\": 128, \"training_samples\": 5000, \"eval_samples\": 1000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 2126.35,
+  "metrics": {
+    "final_train_loss": 0.40360374227166174,
+    "final_auc": 0.5,
+    "num_params": 4387850,
+    "epochs_trained": 20,
+    "batch_size": 128,
+    "training_samples": 5000,
+    "eval_samples": 1000
+  }
+}

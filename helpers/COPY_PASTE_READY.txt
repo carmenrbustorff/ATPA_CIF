@@ -1,0 +1,196 @@
+═════════════════════════════════════════════════════════════════════════════
+COPY-PASTE READY: Exact Code Blocks to Replace
+═════════════════════════════════════════════════════════════════════════════
+
+BLOCK 1: Function Signature Update
+───────────────────────────────────
+LOCATION: Line ~855, in propose_and_generate_code() definition
+
+FIND THIS:
+    def propose_and_generate_code(
+        llm: LLMClient,
+        task_context: str,
+        previous_results: Optional[str],
+        iteration_dir: Path,
+    ) -> Path:
+
+REPLACE WITH:
+    def propose_and_generate_code(
+        llm: LLMClient,
+        task_context: str,
+        previous_results: Optional[str],
+        iteration_dir: Path,
+        data_dir: Optional[Path] = None,
+    ) -> Path:
+
+
+BLOCK 2: Inference Generation Code
+───────────────────────────────────
+LOCATION: Line ~982, at the end of propose_and_generate_code()
+
+FIND THIS:
+        inference_script = KAGGLE_INFERENCE_TEMPLATE.format(
+            INJECTED_MODEL_CLASSES=model_classes,
+            NUM_LOCAL_CLASSES=NUM_SPECIES,
+        )
+
+        inference_path = iteration_dir / "inference.py"
+        inference_path.write_text(inference_script, encoding="utf-8")
+        logger.info("Generated inference script: %s", inference_path)
+
+REPLACE WITH:
+        local_classes = extract_local_classes(data_dir)
+        logger.info("Extracted %d local species", len(local_classes))
+
+        inference_script = KAGGLE_INFERENCE_TEMPLATE.format(
+            INJECTED_MODEL_CLASSES=model_classes,
+            INJECTED_LOCAL_CLASSES=repr(local_classes),
+        )
+
+        inference_path = iteration_dir / "inference.py"
+        inference_path.write_text(inference_script, encoding="utf-8")
+        logger.info("Generated inference script: %s", inference_path)
+
+
+BLOCK 3: Function Call Update
+──────────────────────────────
+LOCATION: Line ~993, in run_agent() function
+
+FIND THIS:
+        # --- Steps 2 & 3: Propose + Generate ---
+        script_path = propose_and_generate_code(
+            llm, task_context, previous_results_text, iteration_dir
+        )
+
+REPLACE WITH:
+        # --- Steps 2 & 3: Propose + Generate ---
+        script_path = propose_and_generate_code(
+            llm, task_context, previous_results_text, iteration_dir, data_dir
+        )
+
+
+BLOCK 4: The Complete New Template
+───────────────────────────────────
+LOCATION: Lines 69-661 (ENTIRE BLOCK - delete old and replace)
+
+Delete everything from:
+    KAGGLE_INFERENCE_TEMPLATE = '''\
+
+To the closing triple-quotes at line ~661
+
+Then copy the ENTIRE new template from AGENT_FIXES.py
+It starts with:
+    KAGGLE_INFERENCE_TEMPLATE = '''\
+    """
+    Auto-generated Kaggle inference script – BirdCLEF 2026 Track B.
+    ...
+And ends with:
+    print("[Inference] Complete!")
+    '''
+
+
+═════════════════════════════════════════════════════════════════════════════
+VERIFICATION COMMANDS
+═════════════════════════════════════════════════════════════════════════════
+
+After making all changes:
+
+1. Check syntax:
+   python3 -m py_compile agent.py
+   echo $?  # Should output: 0
+
+2. Check data_dir parameter exists:
+   grep -A 5 "def propose_and_generate_code" agent.py | grep "data_dir"
+   # Should show: data_dir: Optional[Path] = None,
+
+3. Check local_classes extraction:
+   grep "local_classes = extract_local_classes" agent.py
+   # Should find the line
+
+4. Check template injection:
+   grep "INJECTED_LOCAL_CLASSES=repr" agent.py
+   # Should find the line
+
+5. Check function call passes data_dir:
+   grep -A 5 "propose_and_generate_code(" agent.py | grep "data_dir" | tail -1
+   # Should show data_dir being passed
+
+
+═════════════════════════════════════════════════════════════════════════════
+TESTING AFTER CHANGES
+═════════════════════════════════════════════════════════════════════════════
+
+1. Regenerate inference for existing iteration:
+   .venv/bin/python regenerate_inference.py \
+       --iteration-dir ./experiments/iterations_0201-0250/iter_0200_20260518_092346
+
+2. Test inference:
+   .venv/bin/python generate_local_submission.py \
+       --iteration-dir ./experiments/iterations_0201-0250/iter_0200_20260518_092346 \
+       --test-audio-dir /mnt/disks/data/birdclef/train_soundscapes \
+       --output-dir ./test_submission
+
+3. Validate output:
+   python3 << 'PYEOF'
+   import pandas as pd
+   
+   df = pd.read_csv('test_submission/submission.csv')
+   print(f"Shape: {df.shape}")
+   print(f"Row IDs (first 5): {df['row_id'].head().tolist()}")
+   print(f"Row ID format check: {'_' in df['row_id'].iloc[0]}")
+   print(f"Total rows: {len(df)}")
+   print(f"Expected (1 per 5-sec chunk): ~8400+")
+   print(f"Float columns dtype: {df.iloc[:, 1:].dtypes.unique()}")
+   print(f"Has NaN: {df.isna().sum().sum()}")
+   PYEOF
+
+
+═════════════════════════════════════════════════════════════════════════════
+COMMON MISTAKES TO AVOID
+═════════════════════════════════════════════════════════════════════════════
+
+❌ WRONG: Forgetting to add data_dir parameter
+   → Function signature unchanged
+   → extract_local_classes() never called
+   → Template gets wrong value
+
+✓ CORRECT: Add data_dir parameter
+   def propose_and_generate_code(..., data_dir: Optional[Path] = None)
+
+---
+
+❌ WRONG: Using format string instead of repr()
+   INJECTED_LOCAL_CLASSES={local_classes}
+   → Output: ['amakihil', 'amtkif', ...] (with newlines)
+   → Template parsing fails
+
+✓ CORRECT: Use repr()
+   INJECTED_LOCAL_CLASSES=repr(local_classes)
+   → Output: ['amakihil', 'amtkif', ...]
+   → Valid Python literal
+
+---
+
+❌ WRONG: Not passing data_dir to function
+   propose_and_generate_code(llm, task_context, previous_results_text, iteration_dir)
+   → data_dir defaults to None
+   → extract_local_classes() uses placeholder list
+
+✓ CORRECT: Pass data_dir
+   propose_and_generate_code(llm, task_context, previous_results_text, iteration_dir, data_dir)
+   → Real species names extracted from train.csv
+
+---
+
+❌ WRONG: Keeping old NUM_LOCAL_CLASSES placeholder
+   inference_script = TEMPLATE.format(NUM_LOCAL_CLASSES=206)
+   → Template still has {NUM_LOCAL_CLASSES} placeholder
+   → KeyError when formatting
+
+✓ CORRECT: No NUM_LOCAL_CLASSES, use INJECTED_LOCAL_CLASSES
+   inference_script = TEMPLATE.format(INJECTED_LOCAL_CLASSES=repr(local_classes))
+
+
+═════════════════════════════════════════════════════════════════════════════
+END OF COPY-PASTE GUIDE
+═════════════════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@ N_MELS = 128
 N_FFT = 1024
 HOP_LENGTH = 512
 CLIP_DURATION = 5.0
-NUM_SPECIES = 234
+NUM_SPECIES = 206
 
 DATA_DIR = "/mnt/disks/data/birdclef"
 

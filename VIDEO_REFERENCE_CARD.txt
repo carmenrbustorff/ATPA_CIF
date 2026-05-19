@@ -1,0 +1,258 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║             BIRDCLEF+ 2026 VIDEO PRESENTATION - QUICK REFERENCE                ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+═════════════════════════════════════════════════════════════════════════════════
+  QUICK COMMAND REFERENCE
+═════════════════════════════════════════════════════════════════════════════════
+
+PREPARE:
+  source ~/.venv/bin/activate
+  bash setup_recording.sh
+
+PRE-RECORD DEMO (15-20 minutes):
+  python agent_demo.py --mode demo 2>&1 | tee demo_run.log
+
+GENERATE RESULTS REPORT:
+  python results_reporter.py --output RESULTS_SUMMARY.md
+
+SHOW STATISTICS ONLY:
+  python agent_demo.py --mode summary
+
+═════════════════════════════════════════════════════════════════════════════════
+  VIDEO STRUCTURE (20-25 MINUTES)
+═════════════════════════════════════════════════════════════════════════════════
+
+ 0:00-0:30   │ TITLE CARD
+             │ "Welcome, team intro, project title"
+
+ 0:30-3:30   │ PROBLEM & CONTEXT
+             │ "BirdCLEF+ challenge, 206 species, imbalanced data"
+
+ 3:30-15:00  │ ⭐ DEMO - AGENT RUNNING (main section!)
+             │ "Run agent_demo.py --mode demo"
+             │ Narrate the 7-step cycle as it runs
+
+15:00-19:00  │ DESIGN SOLUTIONS
+             │ Show code snippets for:
+             │ • GPU memory (AMP + GradScaler)
+             │ • Focal Loss
+             │ • SpecAugment
+             │ • Mixup
+             │ • Early Stopping
+
+19:00-21:30  │ CHALLENGES & SOLUTIONS
+             │ • OOM handling
+             │ • LLM code failures → fallback script
+             │ • Class imbalance → valid classes only
+             │ • Slow convergence → combined augmentation
+
+21:30-23:30  │ RESULTS & METRICS
+             │ Show: results_reporter.py output
+             │ • Best AUC: 0.9608
+             │ • Best architecture: EfficientNet-B1
+             │ • 202 iterations total
+
+23:30-25:00  │ CONCLUSION
+             │ Key takeaways & innovation
+
+═════════════════════════════════════════════════════════════════════════════════
+  KEY METRICS TO MENTION
+═════════════════════════════════════════════════════════════════════════════════
+
+✓ Best AUC: 0.9608 (96.08%)
+✓ Total Iterations: 202
+✓ Success Rate: 198/202 (98%)
+✓ Average AUC: 0.7821
+✓ Improvement: +0.4374 (from first to best)
+✓ Best Architecture: EfficientNet-B1
+✓ Training Techniques: Focal Loss + Mixup + SpecAugment
+✓ GPU Model: NVIDIA L4, 24GB VRAM (shared)
+✓ Model Size: 40MB
+✓ Total Parameters: 8.7M
+
+═════════════════════════════════════════════════════════════════════════════════
+  7-STEP AGENT CYCLE (Explain during demo)
+═════════════════════════════════════════════════════════════════════════════════
+
+Step 1: DATA EXPLORATION
+  → Scan dataset, count audio files & species
+  → Compute statistics for LLM context
+
+Step 2: ARCHITECTURE PROPOSAL
+  → Send context to LLM
+  → LLM suggests model improvements (15-20 sec)
+
+Step 3: CODE GENERATION
+  → Extract Python code from LLM response
+  → Validate against known API constraints
+  → Use fallback if generation fails
+
+Step 4: SANDBOXED EXECUTION
+  → Run generated code in subprocess
+  → Timeout protection (60-90 min per iteration)
+  → Real-time metric reporting
+
+Step 5: RESULTS CAPTURE
+  → Parse stdout for metrics
+  → Load metrics.json checkpoint
+  → Save best model weights
+
+Step 6: LLM-DRIVEN ANALYSIS
+  → Send results back to LLM
+  → LLM analyzes performance
+  → Suggests next improvements
+
+Step 7: ITERATION DECISION
+  → Update state with new results
+  → Save metrics to history
+  → Loop continues (or stop)
+
+═════════════════════════════════════════════════════════════════════════════════
+  NARRATION KEY POINTS (Practice these phrases)
+═════════════════════════════════════════════════════════════════════════════════
+
+OPENING:
+"Welcome. I'm Carmen Bustorff Silva, working with Inês Martins and Francisca 
+Menano. We built an autonomous AI agent that discovers deep learning architectures 
+automatically. No manual tuning. The agent learns by doing."
+
+DURING DEMO:
+"Notice the validation AUC improving from 58% to 94% in minutes. This is the 
+autonomous loop in action. Each iteration the agent learns from previous results 
+and suggests strategic improvements."
+
+ABOUT FOCAL LOSS:
+"With 206 bird species and imbalanced data, some appear in only 2-3 recordings. 
+Focal Loss focuses training on hard examples, ensuring all species get learned 
+equally well."
+
+ABOUT SPECAUGMENT:
+"SpecAugment randomly masks frequency and time bands. This teaches the model to 
+recognize birds even with incomplete audio—crucial for real-world robustness."
+
+ABOUT MIXUP:
+"Mixup blends pairs of training examples. This creates intermediate samples that 
+smooth decision boundaries and reduce overfitting."
+
+RESULTS HIGHLIGHT:
+"After 202 iterations, we achieved 96.08% AUC. The agent discovered EfficientNet-B1 
+as optimal. Nobody told it to try this—the agent figured it out through intelligent 
+exploration."
+
+═════════════════════════════════════════════════════════════════════════════════
+  RECORDING TIPS
+═════════════════════════════════════════════════════════════════════════════════
+
+DO:
+✓ Pre-record demo, narrate over it (more control)
+✓ Use light terminal theme (visibility)
+✓ Terminal font: 16-18pt (readable)
+✓ Pause 2-3 seconds when metrics update
+✓ Speak clearly, moderate pace
+✓ Add subtle background music (optional)
+
+DON'T:
+✗ Speed up terminal output (keep it real)
+✗ Skip pauses (let audience read)
+✗ Apologize for waits (it's expected)
+✗ Narrate too fast (people need time)
+
+═════════════════════════════════════════════════════════════════════════════════
+  OBS STUDIO SETTINGS
+═════════════════════════════════════════════════════════════════════════════════
+
+Video:
+  • Resolution: 1920x1080 (or 1280x720)
+  • FPS: 30 (sufficient for terminal)
+  • Bitrate: 6000-8000 kbps
+  • Encoder: H.264 (libx264)
+
+Audio:
+  • Sample rate: 48 kHz
+  • Bitrate: 192 kbps
+  • Channels: Stereo
+
+═════════════════════════════════════════════════════════════════════════════════
+  FILES TO REFERENCE WHILE RECORDING
+═════════════════════════════════════════════════════════════════════════════════
+
+PRIMARY SOURCES:
+  1. START_HERE_VIDEO.md        ← Overview & quick reference
+  2. VIDEO_SCRIPT.md            ← Full narration (follow this!)
+  3. VIDEO_STORYBOARD.md        ← Visual layout & graphics
+
+SUPPORTING MATERIALS:
+  • agent_demo.py               ← Run during recording
+  • results_reporter.py         ← For Part 5 (Results)
+  • setup_recording.sh          ← Pre-recording checklist
+
+═════════════════════════════════════════════════════════════════════════════════
+  EXPECTED DEMO OUTPUT SEQUENCE
+═════════════════════════════════════════════════════════════════════════════════
+
+When you run: python agent_demo.py --mode demo
+
+You'll see (in order):
+
+1. Title banner with system info
+2. Data exploration output
+3. LLM thinking (15-20 second pause)
+4. Code extraction message
+5. Training loop output (6-8 minutes):
+   - Epoch 1: ~58% AUC
+   - Epoch 5: ~70% AUC
+   - Epoch 10: ~85% AUC
+   - Epoch 25: ~94% AUC
+6. Metrics captured
+7. LLM analysis
+8. SECOND ITERATION (same flow, possibly better AUC)
+9. Final summary statistics
+
+TOTAL DEMO TIME: 12-15 minutes
+
+═════════════════════════════════════════════════════════════════════════════════
+  POST-PRODUCTION CHECKLIST
+═════════════════════════════════════════════════════════════════════════════════
+
+Editing:
+  [ ] Trim dead time (waiting for GPU)
+  [ ] Add title cards between sections
+  [ ] Insert graphics from VIDEO_STORYBOARD.md
+  [ ] Color correct for visibility
+  [ ] Audio levels (-3dB headroom)
+
+Captions:
+  [ ] Add subtitles (accessibility)
+  [ ] Match on-screen timing
+  [ ] Highlight key terms
+  [ ] Use tool: Rev, Descript, or manual
+
+Graphics:
+  [ ] Lower-thirds with key metrics
+  [ ] Code snippets highlighted
+  [ ] Architecture diagrams
+  [ ] AUC evolution graph
+
+Export:
+  [ ] Format: H.264, MP4 container
+  [ ] Resolution: 1920x1080
+  [ ] Frame rate: 30fps
+  [ ] Size: ~500MB-1GB
+
+═════════════════════════════════════════════════════════════════════════════════
+  PUBLISHING
+═════════════════════════════════════════════════════════════════════════════════
+
+Platform: YouTube / GitHub
+Title: "BirdCLEF+ 2026: Autonomous Research Agent"
+Tags: autonomous-ai, machine-learning, kaggle, birdclef, deep-learning
+Description: Link to GitHub repo + results summary
+
+═════════════════════════════════════════════════════════════════════════════════
+
+START HERE → Open START_HERE_VIDEO.md (5 minute read)
+
+═════════════════════════════════════════════════════════════════════════════════

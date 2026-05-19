@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-16 13:39:27,221 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:39:28,916 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 13:39:28,929 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 13:39:28,954 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 13:39:28,954 | INFO     | data_loader | Train: 40 batches  |  Val: 8 batches  (batch_size=128)\n",
+  "stderr": "\nEpoch 1/40:   0%|          | 0/40 [00:00<?, ?it/s]\nEpoch 1/40:   0%|          | 0/40 [00:11<?, ?it/s]\nTraceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0171_20260516_133709/train.py\", line 133, in <module>\n    final_train_loss, final_auc = train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, MAX_EPOCHS)\n                                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0151-0200/iter_0171_20260516_133709/train.py\", line 70, in train_model\n    inputs = inputs * freq_mask * time_mask\n             ~~~~~~~^~~~~~~~~~~\nRuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu!\n",
+  "timed_out": false,
+  "duration_s": 36.07
+}

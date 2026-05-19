@@ -1,0 +1,135 @@
+Here is an improved model architecture for the BirdCLEF+ 2026 competition (Track B), using PyTorch. This architecture includes a systematic approach to hyperparameter exploration as per your guidelines.
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from dataset import get_dataloader
+import json
+from tqdm import tqdm
+
+# Hyperparameters
+iteration = 105  # Example iteration number for hyperparameter selection
+epochs = 6
+batch_size = 8 if iteration % 3 == 0 else (16 if iteration % 3 == 1 else 32)
+lr = 0.001 if iteration % 3 == 0 else (0.0001 if iteration % 3 == 1 else 0.00001)
+num_convs = 2 if iteration % 3 == 0 else (3 if iteration % 3 == 1 else 4)
+dropout_rate = 0.5
+
+# Data ingestion
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader = get_dataloader(DATA_DIR, METADATA_FILE, batch_size=batch_size)
+
+# Model architecture
+class BirdClassifier(nn.Module):
+    def __init__(self, num_species, num_convs=3, dropout_rate=0.5):
+        super(BirdClassifier, self).__init__()
+        layers = []
+        in_channels = 1
+        channels = [32, 64, 128, 256][:num_convs]
+        
+        for out_channels in channels:
+            layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU())
+            in_channels = out_channels
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.flatten = nn.Flatten()
+        self.classifier = nn.Sequential(
+            nn.Linear(channels[-1], 128),
+            nn.Dropout(dropout_rate),
+            nn.ReLU(),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Training
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+NUM_SPECIES = 206
+model = BirdClassifier(NUM_SPECIES, num_convs=num_convs, dropout_rate=dropout_rate).to(device)
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr)
+
+# Limit training to a subset of data for faster iteration
+train_subset = torch.utils.data.Subset(train_loader.dataset, range(min(15000, len(train_loader.dataset))))
+train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+
+for epoch in range(epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels.float())
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+        
+        # Clear cache to prevent GPU fragmentation
+        torch.cuda.empty_cache()
+    
+    print(f"Epoch {epoch+1}, Loss: {running_loss/len(train_loader):.4f}")
+
+# Evaluation on validation set
+val_subset = torch.utils.data.Subset(train_loader.dataset, range(min(15000, len(train_loader.dataset)), min(20000, len(train_loader.dataset))))
+val_loader = torch.utils.data.DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for inputs, labels in val_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        all_preds.append(outputs.cpu().numpy())
+        all_labels.append(labels.cpu().numpy())
+
+from sklearn.metrics import roc_auc_score
+import numpy as np
+
+all_preds = np.concatenate(all_preds)
+all_labels = np.concatenate(all_labels)
+
+final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+print(f"Validation AUC: {final_auc:.4f}")
+
+# Save metrics and model checkpoint
+metrics = {
+    "final_train_loss": running_loss/len(train_loader),
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epochs,
+    "batch_size": batch_size,
+    "training_samples": len(train_subset),
+    "eval_samples": len(val_subset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+
+torch.save(model.state_dict(), 'model.pt')
+```
+
+### Explanation
+
+1. **Model Architecture**: The model uses a sequence of convolutional layers followed by batch normalization and ReLU activation. It includes adaptive average pooling for robust dimension handling and flattens the output before passing it through fully connected layers.
+
+2. **Training Loop**: The training loop iterates over the dataset, computes loss, performs backpropagation, and updates weights. It includes a call to `torch.cuda.empty_cache()` after each batch to prevent GPU fragmentation.
+
+3. **Evaluation**: The model is evaluated on a separate validation set using AUC as the metric. The results are saved in `metrics.json`, and the model state dictionary is saved for later use.
+
+4. **Hyperparameter Exploration**: The hyperparameters are selected based on the iteration number, following the systematic variation strategy you described.

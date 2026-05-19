@@ -1,0 +1,98 @@
+Given the constraints of the BirdCLEF+ 2026 competition Track B, we need to design a model that is both efficient and effective at multi-label classification using mel-spectrograms as input. We'll use TensorFlow/Keras for this purpose.
+
+The proposed architecture will be a Convolutional Neural Network (CNN) with several convolutional layers followed by fully connected layers. Given the constraints on computational resources, we'll use a relatively small model to ensure fast training times and compatibility with CPU execution.
+
+Here's the code:
+
+```python
+import tensorflow as tf
+from tensorflow.keras import layers, models, optimizers, losses, metrics
+
+# Define the CNN architecture
+def build_model(input_shape=(128, 100, 3), num_classes=234):
+    model = models.Sequential([
+        layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        layers.MaxPooling2D((2, 2)),
+        layers.Conv2D(64, (3, 3), activation='relu'),
+        layers.MaxPooling2D((2, 2)),
+        layers.Conv2D(128, (3, 3), activation='relu'),
+        layers.MaxPooling2D((2, 2)),
+        layers.Flatten(),
+        layers.Dense(512, activation='relu'),
+        layers.Dropout(0.5),
+        layers.Dense(num_classes, activation='sigmoid')  # Sigmoid for multi-label classification
+    ])
+    
+    model.compile(optimizer=optimizers.Adam(learning_rate=0.001),
+                  loss=losses.BinaryCrossentropy(),
+                  metrics=[metrics.Precision(name='precision'), 
+                           metrics.Recall(name='recall')])
+    return model
+
+# Data loading and preprocessing assumptions
+def load_data(data_dir):
+    # Placeholder function to simulate data loading.
+    # In practice, use tf.data API for efficient data pipeline
+    train_dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        data_dir,
+        labels="inferred",
+        label_mode="categorical",
+        class_names=None,
+        color_mode="rgb",
+        batch_size=32,
+        image_size=(128, 100),
+        shuffle=True,
+        seed=42,
+        validation_split=0.2,
+        subset="training"
+    )
+    
+    val_dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        data_dir,
+        labels="inferred",
+        label_mode="categorical",
+        class_names=None,
+        color_mode="rgb",
+        batch_size=32,
+        image_size=(128, 100),
+        shuffle=True,
+        seed=42,
+        validation_split=0.2,
+        subset="validation"
+    )
+    
+    return train_dataset, val_dataset
+
+# Training loop
+def train_model(train_dataset, val_dataset):
+    model = build_model()
+    history = model.fit(
+        train_dataset,
+        epochs=15,  # Adjust based on convergence and time constraints
+        validation_data=val_dataset,
+        verbose=2
+    )
+    return model, history
+
+# Evaluation code
+def evaluate_model(model, val_dataset):
+    results = model.evaluate(val_dataset)
+    print(f"Validation Loss: {results[0]}")
+    print(f"Validation Precision: {results[1]}")
+    print(f"Validation Recall: {results[2]}")
+
+# Example usage
+if __name__ == "__main__":
+    data_dir = "/home/carme/birdclef-data"
+    train_dataset, val_dataset = load_data(data_dir)
+    model, history = train_model(train_dataset, val_dataset)
+    evaluate_model(model, val_dataset)
+```
+
+### Explanation:
+1. **Model Architecture**: A simple CNN with three convolutional layers followed by max-pooling and a dense layer for classification. The output layer uses a sigmoid activation function to handle multi-label classification.
+2. **Data Loading**: Uses `tf.keras.preprocessing.image_dataset_from_directory` as a placeholder. In practice, you should use the `tf.data` API for more efficient data loading and preprocessing.
+3. **Training Loop**: The model is trained with Adam optimizer and binary cross-entropy loss suitable for multi-label classification. Precision and recall metrics are used to evaluate performance.
+4. **Evaluation**: Evaluates the model on a validation set, printing out the validation loss, precision, and recall.
+
+This architecture allows for rapid experimentation due to its simplicity and small size. Adjustments can be made based on initial results, such as increasing the number of epochs or modifying the network depth/width.

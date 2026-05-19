@@ -1,0 +1,47 @@
+{
+  "status": "started",
+  "llm_name": "qwen2.5-coder:14b",
+  "model": "efficientnet_torch",
+  "config": {
+    "model": "efficientnet_torch",
+    "epochs": "10",
+    "batch_size": "32",
+    "lr": "0.0005",
+    "weight_decay": "0.0001",
+    "val_split": "0.2",
+    "augment": "True",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "agent_qwen2.5-coder:14b_20260518_201106",
+    "llm_name": "qwen2.5-coder:14b",
+    "seed": "42"
+  },
+  "best_val_auc": 0.5885850011720429,
+  "best_epoch": 3,
+  "epochs_completed": 3,
+  "epoch_log": [
+    {
+      "epoch": 1,
+      "train_loss": 0.05885894314141858,
+      "val_loss": 0.043830679570880174,
+      "val_auc": 0.5664045870235159,
+      "time_s": 3515.269862651825
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.0391004487277083,
+      "val_loss": 0.039973427712783685,
+      "val_auc": 0.5789163527732275,
+      "time_s": 3399.7297146320343
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.037183583017409316,
+      "val_loss": 0.03912472481016621,
+      "val_auc": 0.5885850011720429,
+      "time_s": 3387.852395296097
+    }
+  ],
+  "early_stopped": false,
+  "error_message": null
+}

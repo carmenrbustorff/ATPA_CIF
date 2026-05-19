@@ -1,0 +1,14 @@
+{
+  "file_exists": true,
+  "shape": [
+    12,
+    235
+  ],
+  "columns": 235,
+  "first_column": "row_id",
+  "has_nan": "False",
+  "nan_count": 0,
+  "errors": [],
+  "warnings": [],
+  "is_valid": true
+}

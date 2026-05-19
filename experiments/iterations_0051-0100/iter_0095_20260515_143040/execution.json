@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "Epoch 1/10, Average Loss: 0.0468\nEpoch 2/10, Average Loss: 0.0302\nEpoch 3/10, Average Loss: 0.0300\nEpoch 4/10, Average Loss: 0.0299\nEpoch 5/10, Average Loss: 0.0299\nEpoch 6/10, Average Loss: 0.0297\nEpoch 7/10, Average Loss: 0.0298\nEpoch 8/10, Average Loss: 0.0297\nEpoch 9/10, Average Loss: 0.0296\nEpoch 10/10, Average Loss: 0.0294\nFinal Validation AUC: 0.7602\nMETRICS: {\"final_train_loss\": 0.029435594157656713, \"final_auc\": 0.7601971785250397, \"num_params\": 53902, \"epochs_trained\": 10, \"batch_size\": 16, \"training_samples\": 15000, \"eval_samples\": 5000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 469.92,
+  "metrics": {
+    "final_train_loss": 0.029435594157656713,
+    "final_auc": 0.7601971785250397,
+    "num_params": 53902,
+    "epochs_trained": 10,
+    "batch_size": 16,
+    "training_samples": 15000,
+    "eval_samples": 5000
+  }
+}

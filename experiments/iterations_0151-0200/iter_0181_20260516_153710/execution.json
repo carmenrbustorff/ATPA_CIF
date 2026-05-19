@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "2026-05-16 15:38:06,905 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 15:38:08,638 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-16 15:38:08,649 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-16 15:38:08,673 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 5000  val: 1000  dropped: 4\n2026-05-16 15:38:08,673 | INFO     | data_loader | Train: 40 batches  |  Val: 8 batches  (batch_size=128)\n2026-05-16 15:38:08,769 | INFO     | timm.models._builder | Loading pretrained weights from Hugging Face hub (timm/efficientnet_b0.ra_in1k)\n2026-05-16 15:38:08,896 | INFO     | httpx | HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b0.ra_in1k/resolve/main/model.safetensors \"HTTP/1.1 302 Found\"\n2026-05-16 15:38:08,902 | INFO     | timm.models._hub | [timm/efficientnet_b0.ra_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.\n2026-05-16 15:38:08,915 | INFO     | timm.models._builder | Converted input conv conv_stem pretrained weights from 3 to 1 channel(s)\nEpoch 1/3\nEpoch 1 - Average Training Loss: 0.5808\nEpoch 2/3\nEpoch 2 - Average Training Loss: 0.8257\nEpoch 3/3\nEpoch 3 - Average Training Loss: 0.9136\nFinal Validation AUC: 0.5113\nMETRICS: {\"final_train_loss\": null, \"final_auc\": 0.5113240442200968, \"num_params\": 4387850, \"epochs_trained\": 3, \"batch_size\": 128, \"training_samples\": 5000, \"eval_samples\": 1000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 368.02,
+  "metrics": {
+    "final_train_loss": null,
+    "final_auc": 0.5113240442200968,
+    "num_params": 4387850,
+    "epochs_trained": 3,
+    "batch_size": 128,
+    "training_samples": 5000,
+    "eval_samples": 1000
+  }
+}

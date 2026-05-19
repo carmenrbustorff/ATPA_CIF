@@ -1,0 +1,142 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+import random
+
+# Hyperparameters
+NUM_CLASSES = 206
+BATCH_SIZE = 32
+LEARNING_RATE = 0.001
+EPOCHS = 20
+DROPOUT_RATE = 0.5
+WEIGHT_DECAY = 1e-4
+EARLY_STOPPING_PATIENCE = 5
+
+# Data paths
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# Build dataloaders
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=BATCH_SIZE,
+    augment=True,
+    val_split=0.2,
+)
+
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes, dropout_rate=0.5):
+        super(BirdCLEFModel, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(64, 128), nn.ReLU(), nn.Dropout(dropout_rate),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+model = BirdCLEFModel(NUM_CLASSES, DROPOUT_RATE)
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+
+if torch.cuda.is_available():
+    model.to('cuda')
+
+# Training loop
+best_val_auc = 0.0
+early_stopping_counter = 0
+
+for epoch in range(EPOCHS):
+    model.train()
+    total_loss = 0.0
+    for inputs, labels in train_loader:
+        if torch.cuda.is_available():
+            inputs, labels = inputs.to('cuda'), labels.to('cuda')
+        
+        try:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            torch.cuda.empty_cache()  # Prevent GPU fragmentation
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
+                print(f"OOM error caught. Reducing batch size from {BATCH_SIZE} to {BATCH_SIZE // 2}")
+                torch.cuda.empty_cache()
+                BATCH_SIZE //= 2
+                break
+
+    avg_loss = total_loss / len(train_loader)
+    print(f"Epoch [{epoch+1}/{EPOCHS}], Avg Loss: {avg_loss:.4f}")
+
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            if torch.cuda.is_available():
+                inputs, labels = inputs.to('cuda'), labels.to('cuda')
+            
+            outputs = model(inputs)
+            preds = (outputs > 0.5).float()
+            all_preds.extend(outputs.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # Calculate AUC
+    val_auc = roc_auc_score(all_labels, all_preds, average='weighted', multi_class='ovr')
+    print(f"Validation AUC: {val_auc:.4f}")
+
+    if val_auc > best_val_auc:
+        best_val_auc = val_auc
+        early_stopping_counter = 0
+        torch.save(model.state_dict(), 'model.pt')
+    else:
+        early_stopping_counter += 1
+        if early_stopping_counter >= EARLY_STOPPING_PATIENCE:
+            print("Early stopping triggered.")
+            break
+
+# Save metrics
+metrics = {
+    "final_train_loss": avg_loss,
+    "final_auc": best_val_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1,
+    "batch_size": BATCH_SIZE,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Explanation
+1. **Model Architecture**: The model consists of 2 convolutional layers followed by batch normalization and ReLU activation. It uses `AdaptiveAvgPool2d` for robust flattening and a fully connected layer with dropout regularization.
+2. **Training Loop**: The loop includes handling for out-of-memory errors, reducing the batch size if necessary. It also prints the average training loss per epoch.
+3. **Validation and AUC Calculation**: After each epoch, the model is evaluated on the validation set, and the AUC score is calculated using `roc_auc_score`.
+4. **Early Stopping**: The loop includes early stopping based on the validation AUC to prevent overfitting.
+5. **Metrics and Model Saving**: At the end of training, metrics are saved to a JSON file, and the model's state dictionary is saved to a `.pt` file.
+
+This architecture and training loop provide a balance between model complexity and computational efficiency, suitable for rapid experimentation and iteration.

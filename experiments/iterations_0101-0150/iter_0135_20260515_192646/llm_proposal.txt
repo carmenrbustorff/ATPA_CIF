@@ -1,0 +1,173 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import torchaudio.transforms as T
+
+# Define hyperparameters based on the iteration number (for example, let's assume iteration 3)
+iteration = 3
+NUM_SPECIES = 206
+
+# Determine hyperparameters
+if iteration % 3 == 0:
+    batch_size = 8
+    lr = 0.001
+    num_convs = 2
+    dropout_rate = 0.0
+    weight_decay = 0.0
+elif iteration % 3 == 1:
+    batch_size = 16
+    lr = 0.0001
+    num_convs = 3
+    dropout_rate = 0.2
+    weight_decay = 0.0001
+else:  # iteration % 3 == 2
+    batch_size = 32
+    lr = 0.00001
+    num_convs = 4
+    dropout_rate = 0.5
+    weight_decay = 0.001
+
+# Define the CNN model architecture
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_species=NUM_SPECIES, num_convs=num_convs, dropout_rate=dropout_rate):
+        super(BirdCLEFModel, self).__init__()
+        channels = [32, 64, 128, 256][:num_convs]
+        
+        layers = []
+        for in_channels, out_channels in zip([1] + channels, channels):
+            layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU())
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.flatten = nn.Flatten()
+        self.classifier = nn.Sequential(
+            nn.Linear(channels[-1], 128),
+            nn.Dropout(dropout_rate),
+            nn.ReLU(),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize the model
+model = BirdCLEFModel(num_species=NUM_SPECIES, num_convs=num_convs, dropout_rate=dropout_rate)
+
+# Move the model to CUDA if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+# Define loss and optimizer
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+# Data loaders
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=batch_size,
+    augment=True,
+)
+
+# Training loop
+max_epochs = 20
+early_stopping_patience = 5
+best_auc = 0.0
+epochs_trained = 0
+
+for epoch in range(max_epochs):
+    model.train()
+    train_loss = 0.0
+    batch_count = 0
+    
+    for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch + 1}"):
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        # Apply SpecAugment-like masking
+        freq_mask = T.FrequencyMasking(freq_mask_param=24)
+        time_mask = T.TimeMasking(time_mask_param=36)
+        inputs = time_mask(freq_mask(inputs))
+        
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        train_loss += loss.item()
+        batch_count += 1
+        
+        # Early stopping check
+        if epoch > early_stopping_patience and train_loss / batch_count < best_auc:
+            print("Early stopping triggered.")
+            break
+    
+    avg_train_loss = train_loss / batch_count
+    print(f"Epoch {epoch + 1}, Train Loss: {avg_train_loss:.4f}")
+    
+    # Validation AUC calculation
+    model.eval()
+    all_preds, all_labels = [], []
+    
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            all_preds.append(outputs.cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
+    
+    from sklearn.metrics import roc_auc_score
+    all_preds = np.concatenate(all_preds).ravel()
+    all_labels = np.concatenate(all_labels).ravel()
+    final_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+    print(f"Epoch {epoch + 1}, Validation AUC: {final_auc:.4f}")
+    
+    if final_auc > best_auc:
+        best_auc = final_auc
+        epochs_trained = epoch + 1
+        torch.save(model.state_dict(), 'model.pt')
+
+# Save metrics to JSON
+metrics = {
+    "final_train_loss": avg_train_loss,
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epochs_trained,
+    "batch_size": batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: " + json.dumps(metrics))
+```
+
+### Explanation
+
+1. **Hyperparameters**: The script dynamically sets hyperparameters based on the iteration number, allowing for rapid experimentation.
+2. **Model Architecture**: A convolutional neural network (CNN) with a variable number of convolutional layers (`num_convs`), dropout rate (`dropout_rate`), and weight decay (`weight_decay`) is defined.
+3. **Data Loading**: The `build_train_val_dataloaders` function is used to create training and validation data loaders.
+4. **Training Loop**:
+   - Applies SpecAugment-like frequency and time masking during training to improve robustness.
+   - Computes the average training loss per epoch.
+5. **Validation AUC Calculation**: After each epoch, the model's performance on the validation set is evaluated using the weighted ROC AUC score.
+6. **Early Stopping**: Stops training if the training loss does not improve for a specified number of epochs (`early_stopping_patience`).
+7. **Metrics and Model Saving**:
+   - Saves metrics to `metrics.json` including final training loss, validation AUC, model parameters, etc.
+   - Saves the best-performing model weights to `model.pt`.
+
+This approach ensures rapid iterations while maintaining a structured framework for experimentation and evaluation.

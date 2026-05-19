@@ -1,0 +1,10 @@
+{
+  "data_dir": "/mnt/disks/data/b",
+  "timestamp": "2026-05-16T22:31:45.946614+00:00",
+  "audio_files": 0,
+  "unique_species": 0,
+  "total_duration_estimate_s": 0,
+  "notes": [
+    "No data directory found. Using synthetic/demo data for architecture search."
+  ]
+}

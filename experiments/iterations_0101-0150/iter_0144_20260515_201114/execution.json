@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "2026-05-15 20:12:15,574 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 20:12:17,227 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-15 20:12:17,239 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-15 20:12:17,261 | INFO     | data_loader | Stratified split \u2014 train: 28436  val: 7109  dropped: 4\n2026-05-15 20:12:17,261 | INFO     | data_loader | Train: 889 batches  |  Val: 223 batches  (batch_size=32)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0101-0150/iter_0144_20260515_201114/train.py\", line 95, in <module>\n    freq_masking = T.FrequencyMasking(freq_mask_param=20)\n                   ^\nNameError: name 'T' is not defined\n",
+  "timed_out": false,
+  "duration_s": 8.67
+}

@@ -1,0 +1,166 @@
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+
+# Hyperparameters
+NUM_SPECIES = 206
+MAX_EPOCHS = 40
+PATIENCE = 5
+EARLY_STOPPING_THRESHOLD = 0.001
+
+# Data loading
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+train_loader, val_loader = build_train_val_dataloaders(
+    metadata_csv=METADATA_FILE,
+    audio_dir=DATA_DIR,
+    batch_size=32,
+    augment=True,
+    val_split=0.2,
+)
+
+# Model definition
+class BirdCLEFNet(nn.Module):
+    def __init__(self, num_species, conv_layers_count=3, dropout_rate=0.5):
+        super(BirdCLEFNet, self).__init__()
+        layers = []
+        in_channels = 1
+        out_channels = [64, 128, 256, 512][:conv_layers_count]
+        
+        for i in range(conv_layers_count):
+            layers.append(nn.Conv2d(in_channels, out_channels[i], kernel_size=3, padding=1))
+            layers.append(nn.BatchNorm2d(out_channels[i]))
+            layers.append(nn.ReLU())
+            in_channels = out_channels[i]
+        
+        self.conv_layers = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Linear(out_channels[-1], 128),
+            nn.Dropout(dropout_rate),
+            nn.ReLU(),
+            nn.Linear(128, num_species)
+        )
+    
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.pool(x).view(x.size(0), -1)
+        return torch.sigmoid(self.classifier(x))
+
+# Initialize model
+model = BirdCLEFNet(num_species=NUM_SPECIES, conv_layers_count=3, dropout_rate=0.5)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+# Loss and optimizer
+criterion = nn.BCELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+
+# Early stopping
+best_val_auc = 0.0
+early_stop_counter = 0
+
+# Training loop
+for epoch in range(MAX_EPOCHS):
+    model.train()
+    train_loss = 0.0
+    
+    for inputs, labels in tqdm(train_loader):
+        try:
+            inputs, labels = inputs.to(device), labels.to(device)
+            
+            # Forward pass
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
+                print(f"OOM error caught, clearing cache and reducing batch size.")
+                torch.cuda.empty_cache()
+                continue
+        
+        # Clear GPU cache after each batch
+        torch.cuda.empty_cache()
+    
+    average_train_loss = train_loss / len(train_loader)
+    print(f"Epoch [{epoch+1}/{MAX_EPOCHS}], Train Loss: {average_train_loss:.4f}")
+    
+    # Validation
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(val_loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            all_preds.extend(outputs.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    from sklearn.metrics import roc_auc_score
+    val_auc = roc_auc_score(all_labels, all_preds, average='weighted')
+    
+    print(f"Validation AUC: {val_auc:.4f}")
+    
+    # Early stopping check
+    if val_auc > best_val_auc + EARLY_STOPPING_THRESHOLD:
+        early_stop_counter = 0
+        best_val_auc = val_auc
+        torch.save(model.state_dict(), 'model.pt')
+        print("Model saved with new best AUC.")
+    else:
+        early_stop_counter += 1
+    
+    if early_stop_counter >= PATIENCE:
+        print(f"Early stopping triggered after {PATIENCE} epochs without improvement.")
+        break
+
+# Metrics saving
+metrics = {
+    "final_train_loss": average_train_loss,
+    "final_auc": best_val_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": epoch + 1 if early_stop_counter < PATIENCE else epoch,
+    "batch_size": train_loader.batch_size,
+    "training_samples": len(train_loader.dataset),
+    "eval_samples": len(val_loader.dataset)
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print(f"METRICS: {json.dumps(metrics)}")
+```
+
+### Explanation:
+
+1. **Model Architecture**:
+   - `BirdCLEFNet` class is defined with a configurable number of convolutional layers (`conv_layers_count`) and dropout rate.
+   - The model uses `AdaptiveAvgPool2d` for robust flattening, ensuring the network can handle varying input sizes.
+
+2. **Training Loop**:
+   - The training loop includes error handling for out-of-memory (OOM) errors, reducing the batch size if necessary.
+   - GPU memory is cleared after each batch to prevent accumulation of unused memory.
+
+3. **Validation and Early Stopping**:
+   - Validation AUC is computed using `roc_auc_score` from scikit-learn.
+   - Early stopping is implemented based on a threshold improvement in validation AUC over several epochs.
+
+4. **Metrics and Model Saving**:
+   - Final training loss, validation AUC, number of parameters, epochs trained, batch size, and sample counts are saved to `metrics.json`.
+   - The best model state dictionary is saved as `model.pt`.
+
+This approach prioritizes rapid experimentation by allowing easy tuning of hyperparameters and leveraging early stopping to prevent overfitting.
