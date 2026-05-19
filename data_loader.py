@@ -14,8 +14,8 @@ Audio spec:
   - Time frames per clip: ⌈160 000 / 512⌉ = 313
   - Output tensor shape : (1, 128, 313)  [channel, n_mels, time]
 
-DataLoader tuning (4-vCPU, shared NVIDIA L4):
-  - num_workers = 3  (leaves 1 CPU for the main process / training loop)
+DataLoader tuning (CPU-constrained host, shared NVIDIA L4):
+    - num_workers = 2  (avoids oversubscribing the available CPU)
   - pin_memory  = True  (zero-copy transfer to GPU)
   - persistent_workers = True  (avoids worker re-spawn overhead per epoch)
 """
@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 DATA_ROOT = Path("/mnt/disks/data/birdclef")
 METADATA_CSV = DATA_ROOT / "train.csv"
 AUDIO_DIR = DATA_ROOT / "train_audio"
+SPECTROGRAM_CACHE_DIR = DATA_ROOT / "spectrograms_cache"
 
 SAMPLE_RATE = SR          # native rate of BirdCLEF OGG files
 CLIP_DURATION = CLIP_DURATION           # seconds
@@ -69,9 +70,8 @@ TOP_DB = 80.0
 # Derived time dimension: ceil(CLIP_SAMPLES / HOP_LENGTH) = 313
 TIME_FRAMES = (CLIP_SAMPLES // HOP_LENGTH) + 1  # 313
 
-# DataLoader workers: leave 1 CPU free for the training loop
-MAX_WORKERS = 3
-NUM_WORKERS = min(MAX_WORKERS, max(1, os.cpu_count() - 1))  # type: ignore[arg-type]
+# DataLoader workers: keep CPU usage conservative on shared hosts
+NUM_WORKERS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,8 @@ class BirdCLEFDataset(Dataset):
         self,
         metadata_csv: Path = METADATA_CSV,
         audio_dir: Path = AUDIO_DIR,
+        spectrogram_dir: Optional[Path] = None,
+        use_cache: bool = True,
         sample_rate: int = SAMPLE_RATE,
         clip_samples: int = CLIP_SAMPLES,
         n_mels: int = N_MELS,
@@ -128,6 +130,8 @@ class BirdCLEFDataset(Dataset):
         super().__init__()
 
         self.audio_dir = Path(audio_dir)
+        self.spectrogram_dir = Path(spectrogram_dir) if spectrogram_dir is not None else SPECTROGRAM_CACHE_DIR
+        self.use_cache = use_cache
         self.sample_rate = sample_rate
         self.clip_samples = clip_samples
         self.augment = augment
@@ -178,6 +182,12 @@ class BirdCLEFDataset(Dataset):
         A random ``clip_samples``-length window is extracted when the file
         is longer; the waveform is zero-padded when it is shorter.
         """
+        if self.use_cache:
+            cache_path = self.spectrogram_dir / path.relative_to(self.audio_dir).with_suffix(".npy")
+            if cache_path.exists():
+                cached_spectrogram = np.load(cache_path, allow_pickle=False).astype(np.float32, copy=False)
+                return cached_spectrogram
+
         try:
             audio, orig_sr = librosa.load(str(path), sr=None, mono=False)
             # librosa returns numpy (N,) for mono or (channels, N) for multi-channel
@@ -255,8 +265,19 @@ class BirdCLEFDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         path, label = self._samples[idx]
-        waveform = self._load_waveform(path)
-        spectrogram = self._waveform_to_melspec(waveform)
+        item = self._load_waveform(path)
+
+        if isinstance(item, np.ndarray):
+            spectrogram = item
+            if spectrogram.ndim == 3 and spectrogram.shape[0] == 1:
+                spectrogram = spectrogram.squeeze(0)
+            elif spectrogram.ndim == 3 and spectrogram.shape[-1] == 1:
+                spectrogram = spectrogram.squeeze(-1)
+            if spectrogram.ndim != 2:
+                raise ValueError(f"Cached spectrogram has unexpected shape: {spectrogram.shape}")
+            return torch.from_numpy(spectrogram).unsqueeze(0).float(), label
+
+        spectrogram = self._waveform_to_melspec(item)
         return spectrogram, label
 
 
@@ -267,10 +288,12 @@ class BirdCLEFDataset(Dataset):
 def build_dataloader(
     metadata_csv: Path = METADATA_CSV,
     audio_dir: Path = AUDIO_DIR,
+    spectrogram_dir: Optional[Path] = None,
     batch_size: int = 32,
     shuffle: bool = True,
     num_workers: int = NUM_WORKERS,
     pin_memory: bool = True,
+    use_cache: bool = True,
     augment: bool = False,
     prefetch_factor: Optional[int] = 2,
 ) -> DataLoader:
@@ -304,6 +327,8 @@ def build_dataloader(
     dataset = BirdCLEFDataset(
         metadata_csv=metadata_csv,
         audio_dir=audio_dir,
+        spectrogram_dir=spectrogram_dir,
+        use_cache=use_cache,
         augment=augment,
     )
 

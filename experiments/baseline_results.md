@@ -66,9 +66,29 @@ Per-Epoch Metrics
 - **Loss function bug discovered after Run 1:** baseline.py used `BCEWithLogitsLoss` on outputs that the model had already passed through sigmoid internally — equivalent to applying sigmoid twice, which weakens the gradient signal. Fixed to `BCELoss` for future runs. Run 1 numbers (AUC ~0.52) are reported as-is for transparency, but the bug likely contributed to the flat learning curve. Run 2 onwards uses correct loss math.
 ---
 
-## Run 2 — EfficientNet (Transfer Learning) — *Planned*
+## Run 2 - Autonomous Agent (EfficientNet)
 
-To be filled after running.
+**Date:** 2026-05-19
+**Agent:** constrained autonomous agent (LLM = `qwen2.5-coder:14b`)
+
+### Winning configuration (Iteration 5)
+| Parameter | Value |
+|---|---|
+| Model | `efficientnet_torch` |
+| Epochs | 7 |
+| Learning rate | 0.0001 |
+| Batch size | 32 |
+| Augmentation | True (random-crop) |
+
+### Results
+- **Best val AUC:** 0.6061 (massive improvement over the 0.52 SimpleCNN baseline)
+- **Best epoch:** 7
+- **Run ID:** agent_qwen2.5-coder:14b_20260519_132905
+
+### Summary
+- The autonomous constrained agent found a strong EfficientNet configuration that achieved **AUC=0.6061**, substantially outperforming Run 1 (SimpleCNN, AUC ~0.52).
+- Pre-caching mel-spectrograms as `.npy` files reduced per-epoch overhead — epoch training time dropped to ~46 seconds, which allowed the agent to complete 5 full autonomous experiments in under 30 minutes.
+
 
 ---
 

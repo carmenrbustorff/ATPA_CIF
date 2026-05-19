@@ -27,9 +27,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model = build_simple_cnn_torch(num_classes=NUM_SPECIES).to(device)
 
 # 3. Compile — same as `model.compile(optimizer="adam", loss=...)`
-# NOTE: build_simple_cnn_torch already applies sigmoid internally,
-# so we use BCELoss (not BCEWithLogitsLoss) to avoid double-sigmoid.
-criterion = nn.BCELoss()
+# build_simple_cnn_torch now returns raw logits, so BCEWithLogitsLoss is correct.
+criterion = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
 # 4. Fit — same as `model.fit(x_train, y_train, epochs=5)`
@@ -40,7 +39,8 @@ for epoch in range(5):
         if y.dim() == 1:  # convert integer labels to multi-hot if needed
             y = torch.nn.functional.one_hot(y.long(), NUM_SPECIES).float()
         optimizer.zero_grad()
-        loss = criterion(model(x), y)
+        logits = model(x)
+        loss = criterion(logits, y)
         loss.backward()
         optimizer.step()
 
@@ -52,8 +52,10 @@ for epoch in range(5):
             x = x.to(device)
             if y.dim() == 1:
                 y = torch.nn.functional.one_hot(y.long(), NUM_SPECIES).float()
+            logits = model(x)
+            probs = torch.sigmoid(logits)
             ys.append(y.numpy())
-            ps.append(model(x).cpu().numpy())  # already in [0,1] from model's sigmoid
+            ps.append(probs.cpu().numpy())
     y_true, y_prob = np.concatenate(ys), np.concatenate(ps)
     present = y_true.sum(axis=0) > 0
     auc = roc_auc_score(y_true[:, present], y_prob[:, present], average="macro")

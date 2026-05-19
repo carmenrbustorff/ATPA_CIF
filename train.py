@@ -82,11 +82,11 @@ def validate(model, loader, criterion, device, num_classes, expand_rgb):
         x = x.to(device, non_blocking=True)
         y = to_multilabel(y.to(device), num_classes)
         with autocast():
-            probs = forward_batch(model, x, expand_rgb)  # models apply sigmoid internally
-            loss = criterion(probs, y)
+            logits = forward_batch(model, x, expand_rgb)
+            loss = criterion(logits, y)
         losses.append(loss.item())
         ys.append(y.cpu().numpy())
-        ps.append(probs.float().cpu().numpy())
+        ps.append(torch.sigmoid(logits).float().cpu().numpy())
     y_true, y_prob = np.concatenate(ys), np.concatenate(ps)
     present = y_true.sum(axis=0) > 0
     auc = roc_auc_score(y_true[:, present], y_prob[:, present], average="macro")
@@ -101,8 +101,8 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, num_cla
         y = to_multilabel(y.to(device), num_classes)
         optimizer.zero_grad(set_to_none=True)
         with autocast():
-            probs = forward_batch(model, x, expand_rgb)  # models apply sigmoid internally
-            loss = criterion(probs, y)
+            logits = forward_batch(model, x, expand_rgb)
+            loss = criterion(logits, y)
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -139,14 +139,13 @@ def main():
         val_set = Subset(full, val_idx)
         print(f"Train: {len(train_idx)}  Val: {len(val_idx)}  Dropped: {dropped}  Classes: {NUM_SPECIES}")
 
-        loader_kw = dict(num_workers=NUM_WORKERS, pin_memory=(device.type == "cuda"),
-                          persistent_workers=(NUM_WORKERS > 0))
+        loader_kw = dict(num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
         train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, **loader_kw)
         val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, **loader_kw)
 
         model = build_model(args.model, NUM_SPECIES).to(device)
         expand_rgb = (args.model == "efficientnet_torch")
-        criterion = nn.BCELoss()  # models apply sigmoid internally
+        criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr, weight_decay=args.weight_decay

@@ -1,0 +1,96 @@
+{
+  "status": "success",
+  "llm_name": "qwen2.5-coder:14b",
+  "model": "efficientnet_torch",
+  "config": {
+    "model": "efficientnet_torch",
+    "epochs": "10",
+    "batch_size": "32",
+    "lr": "5e-05",
+    "weight_decay": "0.0001",
+    "val_split": "0.2",
+    "augment": "True",
+    "early_stopping_patience": "3",
+    "output_dir": "experiments",
+    "run_id": "agent_qwen2.5-coder:14b_20260519_131631",
+    "llm_name": "qwen2.5-coder:14b",
+    "seed": "42"
+  },
+  "best_val_auc": 0.5642788093263506,
+  "best_epoch": 10,
+  "epochs_completed": 10,
+  "epoch_log": [
+    {
+      "epoch": 1,
+      "train_loss": 0.1916170584412943,
+      "val_loss": 0.08973452956687175,
+      "val_auc": 0.5202223343066338,
+      "time_s": 39.771119594573975
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.06567664238277517,
+      "val_loss": 0.06156036364657996,
+      "val_auc": 0.5259611008809135,
+      "time_s": 40.81771755218506
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.051260682704981055,
+      "val_loss": 0.051887465315148436,
+      "val_auc": 0.532210227957864,
+      "time_s": 42.107906103134155
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.04679054238061401,
+      "val_loss": 0.048413086690910725,
+      "val_auc": 0.5374363904616181,
+      "time_s": 41.025232791900635
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.04361921902096446,
+      "val_loss": 0.048703421508651146,
+      "val_auc": 0.5445210414240328,
+      "time_s": 42.16125226020813
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.041640485520605564,
+      "val_loss": 0.04621572668910561,
+      "val_auc": 0.5489799463253171,
+      "time_s": 44.607935667037964
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.0405217625862836,
+      "val_loss": 0.04657881437997112,
+      "val_auc": 0.5545166686807338,
+      "time_s": 46.42170858383179
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.0393895522593882,
+      "val_loss": 0.04245715932461178,
+      "val_auc": 0.559373098369737,
+      "time_s": 39.905144929885864
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.03883567952558281,
+      "val_loss": 0.041549575845021836,
+      "val_auc": 0.5595921911675374,
+      "time_s": 46.14978861808777
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.038812590911733016,
+      "val_loss": 0.04084815272034016,
+      "val_auc": 0.5642788093263506,
+      "time_s": 48.40736508369446
+    }
+  ],
+  "early_stopped": false,
+  "error_message": null
+}
