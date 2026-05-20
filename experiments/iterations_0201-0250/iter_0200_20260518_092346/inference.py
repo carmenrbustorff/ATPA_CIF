@@ -1,7 +1,7 @@
 import os
 import gc
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,9 +29,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = os.environ.get("MODEL_PATH", "/kaggle/input/datasets/carmenbustorff/model200-7/model200.pt")
 TEST_AUDIO_DIR = Path(os.environ.get("TEST_AUDIO_DIR", "/kaggle/input/competitions/birdclef-2026/test_soundscapes"))
 SAMPLE_SUB_PATH = os.environ.get("SAMPLE_SUB_PATH", "/kaggle/input/competitions/birdclef-2026/sample_submission.csv")
-TRAIN_META_PATH = os.environ.get("TRAIN_META_PATH", "/kaggle/input/competitions/birdclef-2026/train_metadata.csv")
-CLASSES_PATH = os.environ.get("CLASSES_PATH", "")  # optional path to classes.txt
 OUTPUT_PATH = os.environ.get("OUTPUT_PATH", "/kaggle/working/submission.csv")
+CLASSES_PATH = os.environ.get("CLASSES_PATH", "")  # optional classes.txt path
 
 # =============================================================================
 # Model (must match training)
@@ -69,7 +68,7 @@ class BirdCLEFModel(nn.Module):
 # =============================================================================
 # Class list (must match training order)
 # =============================================================================
-# Fallback list — replace if you have classes.txt from training
+# Fallback list — replace with classes.txt from training if available
 LOCAL_CLASSES_FALLBACK = [
     '1161364', '116570', '1176823', '1595929', '209233', '22930', '22956', '22961', '22967',
     '22973', '22983', '22985', '23150', '23154', '23158', '23176', '23724', '24279', '24285',
@@ -102,24 +101,12 @@ LOCAL_CLASSES_FALLBACK = [
 
 
 def load_training_classes() -> List[str]:
-    # 1) classes.txt (recommended)
     if CLASSES_PATH:
         path = Path(CLASSES_PATH)
         if path.exists():
             classes = [line.strip() for line in path.read_text().splitlines() if line.strip()]
             if classes:
                 return classes
-
-    # 2) train_metadata.csv (matches data_loader.py sorting)
-    try:
-        df = pd.read_csv(TRAIN_META_PATH)
-        species = sorted(df["primary_label"].unique().tolist())
-        if species:
-            return species
-    except Exception:
-        pass
-
-    # 3) fallback
     return LOCAL_CLASSES_FALLBACK
 
 
@@ -149,8 +136,7 @@ def process_audio(waveform: torch.Tensor) -> torch.Tensor:
 # Inference
 # =============================================================================
 
-def infer_file(audio_path: Path, model: nn.Module, classes: List[str]) -> Dict[str, np.ndarray]:
-    """Return dict of row_id -> probs array"""
+def infer_file(audio_path: Path, model: nn.Module) -> Dict[str, np.ndarray]:
     results: Dict[str, np.ndarray] = {}
 
     try:
@@ -197,17 +183,32 @@ def infer_file(audio_path: Path, model: nn.Module, classes: List[str]) -> Dict[s
     return results
 
 
+def get_checkpoint_num_classes(state_dict: Dict[str, torch.Tensor]) -> int:
+    # classifier.3 is the final Linear in this repo's model
+    weight = state_dict.get("classifier.3.weight")
+    if weight is None:
+        raise RuntimeError("Could not find classifier.3.weight in checkpoint")
+    return int(weight.shape[0])
+
+
 def generate_submission_csv():
     sample_df = pd.read_csv(SAMPLE_SUB_PATH)
     kaggle_species_cols = sample_df.columns[1:].tolist()
 
-    classes = load_training_classes()
-    num_classes = len(classes)
+    # Load checkpoint first to determine class count
+    state = torch.load(MODEL_PATH, map_location=DEVICE)
+    num_classes = get_checkpoint_num_classes(state)
 
-    device = DEVICE
+    classes = load_training_classes()
+    if len(classes) != num_classes:
+        raise RuntimeError(
+            f"Class list length ({len(classes)}) does not match checkpoint ({num_classes}). "
+            "Provide classes.txt from training via CLASSES_PATH."
+        )
+
     model = BirdCLEFModel(num_classes=num_classes)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.to(device)
+    model.load_state_dict(state)
+    model.to(DEVICE)
     model.eval()
 
     if not TEST_AUDIO_DIR.exists():
@@ -219,17 +220,15 @@ def generate_submission_csv():
         sample_df.to_csv(OUTPUT_PATH, index=False)
         return
 
-    # Collect predictions into a mapping
     pred_map: Dict[str, np.ndarray] = {}
     for audio_path in test_files:
-        pred_map.update(infer_file(audio_path, model, classes))
+        pred_map.update(infer_file(audio_path, model))
 
     # Build submission aligned to sample_submission
     final_data = {"row_id": sample_df["row_id"].values}
     for col in kaggle_species_cols:
         final_data[col] = np.zeros(len(sample_df), dtype=np.float32)
 
-    # Fill from predictions by class-name mapping
     class_to_idx = {c: i for i, c in enumerate(classes)}
 
     for i, row_id in enumerate(sample_df["row_id"].values):
