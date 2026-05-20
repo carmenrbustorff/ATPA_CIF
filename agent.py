@@ -45,6 +45,7 @@ from llm_client import LLMClient
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
+import torch
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -57,6 +58,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def resolve_device(allow_cpu_fallback: bool = True) -> torch.device:
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        torch.backends.cudnn.benchmark = True
+        logger.info("Using device: %s (%s)", device, torch.cuda.get_device_name(0))
+        return device
+
+    if allow_cpu_fallback:
+        logger.warning("CUDA is not available; falling back to CPU.")
+        return torch.device("cpu")
+
+    raise RuntimeError(
+        "CUDA is not available. This agent is configured to run on the VM's GPU only."
+    )
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -64,6 +81,7 @@ logger = logging.getLogger(__name__)
 EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 NUM_SPECIES = 206  # Update this if dataset changes
 MAX_EXEC_TIMEOUT = 10800   # seconds
+MODEL_RELOAD_DELAY_S = 3
 
 
 TASK_CONTEXT_TEMPLATE = """\
@@ -119,14 +137,23 @@ NEVER IMPORT MODULES WITHOUT ALIASES
         If you change the model string, the run will be considered an immediate failure.
 
 6. TRAINING CONSTRAINTS (IMPORTANT FOR ITERATION SPEED)
-   - Set max_epochs=40 and initial batch_size=64.
+    - Set max_epochs=40 and initial batch_size=64.
    - You MUST implement Mixup data augmentation in your training loop using the provided mixup_data function. Do NOT define it yourself. It is injected globally into your runtime environment. Simply call 'mixed_x, mixed_y = mixup_data(x, y, alpha=0.2)' directly in your training loop.
    - You MUST apply SpecAugment (T.FrequencyMasking and T.TimeMasking) to the training batches.
    - Wrap the batch training step in a try/except block for OOM safety.
    - Include torch.cuda.empty_cache() AFTER EACH BATCH.
    - You MUST implement Automatic Mixed Precision (AMP) using 'scaler = torch.amp.GradScaler("cuda")' and 'with torch.autocast(device_type="cuda"):'.
-   - Implement Early Stopping: automatically stop training if the validation AUC does not improve for 5 consecutive epochs.
+    - Implement Early Stopping: automatically stop training if the validation AUC does not improve for 5 consecutive epochs.
     Do not define FocalLoss or mixup_data. These have already been defined and injected globally into your runtime environment. Simply instantiate criterion = FocalLoss(alpha=0.25, gamma=2.0) and call mixed_x, mixed_y = mixup_data(x, y, alpha=0.2) directly in your training loop.
+
+7A. ANTI-OVERFITTING RULES (MANDATORY):
+    - Reduce default training budget: prefer `max_epochs=20` and `batch_size=32` unless explicit reasons exist.
+    - Use stronger regularisation: set `weight_decay >= 1e-3`, increase dropout in classifier head to >=0.5.
+    - Use conservative learning rates (e.g., lr <= 5e-5) when fine-tuning pretrained backbones.
+    - Use a LR scheduler (e.g. `ReduceLROnPlateau`) and lower LR on plateau to avoid overfitting.
+    - Reduce early-stopping patience to 4 and checkpoint the best model only.
+    - Increase SpecAugment strength (larger time/frequency masks) and ensure `augment=True` is used.
+    - Log/print training and validation losses and AUC each epoch (required for analysis and rollback).
 
 7. METRICS CAPTURE & MODEL SAVING:
    - Validation = same val_loader but with model.eval() and torch.no_grad().
@@ -165,7 +192,7 @@ NEVER IMPORT MODULES WITHOUT ALIASES
        num_workers=4,
        pin_memory=True
    )
-   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device()
    
    # NOTE: FocalLoss and mixup_data are already injected into your runtime environment.
    # Do NOT define them. Simply use them as shown below.
@@ -175,13 +202,14 @@ NEVER IMPORT MODULES WITHOUT ALIASES
        def __init__(self, num_classes):
            super().__init__()
            self.base_model = timm.create_model("efficientnet_b1", pretrained=True, in_chans=1, num_classes=0)
+           # Start training with the backbone frozen; unfreeze after a small number of epochs for fine-tuning
            for param in self.base_model.parameters():
-               param.requires_grad = True 
+               param.requires_grad = False
            in_features = getattr(self.base_model, "num_features")
            self.classifier = nn.Sequential(
-               nn.Linear(in_features, 512), 
+               nn.Linear(in_features, 512),
                nn.ReLU(),
-               nn.Dropout(0.3),
+               nn.Dropout(0.5),
                nn.Linear(512, num_classes)
            )
        def forward(self, x):
@@ -189,27 +217,32 @@ NEVER IMPORT MODULES WITHOUT ALIASES
            logits = self.classifier(features)
            return logits
    
-   model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+    model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
    
-   # 4. Optimizer, Loss, AMP Scaler
-   criterion = FocalLoss(alpha=0.25, gamma=2.0)
-   optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4) 
-   scaler = torch.amp.GradScaler("cuda")  # type: ignore
-   max_epochs = 40
+    # 4. Optimizer, Loss, AMP Scaler
+    criterion = FocalLoss(alpha=0.25, gamma=2.0)
+    # Conservative LR and stronger weight decay to reduce overfitting
+    optimizer = optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-3)
+    scaler = torch.amp.GradScaler("cuda")  # type: ignore
+    max_epochs = 20
 
-   # Augmentations
-   freq_mask = T.FrequencyMasking(freq_mask_param=24).to(device)
-   time_mask = T.TimeMasking(time_mask_param=64).to(device)
+    # Augmentations (stronger SpecAugment for improved generalisation)
+    freq_mask = T.FrequencyMasking(freq_mask_param=48).to(device)
+    time_mask = T.TimeMasking(time_mask_param=96).to(device)
+
+    # LR scheduler to reduce LR on plateau (helps prevent overfitting)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, min_lr=1e-7)
 
    # --- TRAINING AND VALIDATION LOOPS ---
-   all_train_losses = []
-   best_auc = 0.0
-   patience = 5
-   early_stop_counter = 0
+    all_train_losses = []
+    best_auc = 0.0
+    patience = 4
+    early_stop_counter = 0
 
    for epoch in range(max_epochs):
        model.train()
        epoch_loss = 0.0
+         print(f"Starting epoch {{epoch + 1}}/{{max_epochs}}")
        
        for batch_idx, (inputs, labels) in enumerate(train_loader):
            try:
@@ -217,17 +250,17 @@ NEVER IMPORT MODULES WITHOUT ALIASES
                labels = labels.float().to(device)
                
                # Apply Mixup
-               inputs, targets_a, targets_b, lam = mixup_data(inputs, labels, alpha=0.2)
+               mixed_x, mixed_y = mixup_data(inputs, labels, alpha=0.2)
                
                # Apply SpecAugment
-               inputs = freq_mask(inputs)
-               inputs = time_mask(inputs)
+               mixed_x = freq_mask(mixed_x)
+               mixed_x = time_mask(mixed_x)
                
                optimizer.zero_grad()
                
                with torch.autocast(device_type="cuda"):
-                   logits = model(inputs)
-                   loss = lam * criterion(logits, targets_a) + (1 - lam) * criterion(logits, targets_b)
+                   logits = model(mixed_x)
+                   loss = criterion(logits, mixed_y)
                
                scaler.scale(loss).backward()
                scaler.unscale_(optimizer)
@@ -236,6 +269,7 @@ NEVER IMPORT MODULES WITHOUT ALIASES
                scaler.update()
                
                epoch_loss += loss.item()
+               print(f"Epoch {{epoch + 1}}/{{max_epochs}} - batch {{batch_idx + 1}}/{{len(train_loader)}}")
                torch.cuda.empty_cache()
            except RuntimeError as e:
                if "out of memory" in str(e).lower():
@@ -247,7 +281,7 @@ NEVER IMPORT MODULES WITHOUT ALIASES
        
        avg_epoch_loss = epoch_loss / len(train_loader)
        all_train_losses.append(avg_epoch_loss)
-       print(f"Epoch {{epoch + 1}}/{{max_epochs}}, Train Loss: {{avg_epoch_loss:.4f}}")
+             print(f"Epoch {{epoch + 1}}/{{max_epochs}}, Train Loss: {{avg_epoch_loss:.4f}}")
 
        # Validation Pass
        model.eval()
@@ -282,7 +316,7 @@ NEVER IMPORT MODULES WITHOUT ALIASES
        else:
            current_auc = 0.5000
 
-       print(f"Epoch {{epoch + 1}}/{{max_epochs}}, Validation AUC: {{current_auc:.4f}}")
+         print(f"Epoch {{epoch + 1}}/{{max_epochs}}, Validation AUC: {{current_auc:.4f}}")
 
        # Early Stopping & Best Weights Tracking
        if current_auc > best_auc:
@@ -566,6 +600,20 @@ def propose_and_generate_code(
         "import numpy as np\n"
         "from sklearn.metrics import roc_auc_score\n"
     )
+
+    # Resolve device helper injected after imports to ensure torch is available
+    header += (
+        "\n# Device resolver helper\n"
+        "def resolve_device(allow_cpu_fallback: bool = True):\n"
+        "    if torch.cuda.is_available():\n"
+        "        device = torch.device('cuda')\n"
+        "        torch.backends.cudnn.benchmark = True\n"
+        "        return device\n"
+        "    if allow_cpu_fallback:\n"
+        "        print('CUDA unavailable; falling back to CPU.')\n"
+        "        return torch.device('cpu')\n"
+        "    raise RuntimeError('CUDA is not available.')\n\n"
+    )
     
     # Remove duplicate imports from LLM code to avoid "import redefinition" issues
     lines = code.split('\n')
@@ -595,10 +643,38 @@ def propose_and_generate_code(
             logger.warning("Code generation blocker: %s", blocker)
         logger.warning("Falling back to safe template due to generated code blockers.")
         code = _fallback_training_script()
+
+    if not torch.cuda.is_available():
+        logger.warning("CUDA is unavailable; using the built-in CPU fallback training script.")
+        code = _fallback_training_script()
+
+    # Generated scripts in the wild use two common mixup styles:
+    # 1) mixed_x, mixed_y = mixup_data(...)
+    # 2) inputs, targets_a, targets_b, lam = mixup_data(...)
+    # Match the injected helper signature to the generated usage for this iteration.
+    mixup_expects_four = re.search(
+        r"\b\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*=\s*mixup_data\s*\(",
+        code,
+    ) is not None
+
+    if mixup_expects_four:
+        logger.info("Detected 4-value mixup_data unpack pattern in generated code.")
+        mixup_body = """
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+
+    return mixed_x, y, y[index, :], lam
+"""
+    else:
+        mixup_body = """
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    mixed_y = lam * y + (1 - lam) * y[index, :]
+
+    return mixed_x, mixed_y
+"""
     
     MATH_INJECTION = """
 # OVERRIDE: Mathematically Sound Multi-Label Continuous Focal Loss
-class FocalLoss(nn.Module):
+class _InjectedFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
         self.alpha = alpha
@@ -614,7 +690,7 @@ class FocalLoss(nn.Module):
         return loss.sum(dim=1).mean()
 
 # OVERRIDE: Multi-Label Mixup (Direct Label Blending)
-def mixup_data(x, y, alpha=0.2):
+def _injected_mixup_data(x, y, alpha=0.2):
     if alpha > 0:
         lam = np.random.beta(alpha, alpha)
     else:
@@ -622,14 +698,98 @@ def mixup_data(x, y, alpha=0.2):
     batch_size = x.size()[0]
     index = torch.randperm(batch_size).to(x.device)
     
-    mixed_x = lam * x + (1 - lam) * x[index, :]
-    
-    return mixed_x, y, y[index, :], lam
+{mixup_body}
+
+FocalLoss = _InjectedFocalLoss
+mixup_data = _injected_mixup_data
+""".format(mixup_body=mixup_body)
+
+    DEVICE_COMPAT_INJECTION = """
+# DEVICE COMPATIBILITY SHIM: make common GPU idioms safe on CPU
+from contextlib import contextmanager
+device = resolve_device(allow_cpu_fallback=True)
+# Autocast shim: no-op on CPU, real autocast on CUDA
+print(f"Resolved device: {device}, torch.cuda.is_available={torch.cuda.is_available()}")
+
+# Autocast shim: no-op on CPU, real autocast on CUDA
+# Autocast shim: no-op on CPU, real autocast on CUDA
+def _autocast(device_type='cuda'):
+    if device.type == 'cuda':
+        # Use torch.amp.autocast when CUDA is available
+        return torch.amp.autocast(device_type='cuda')
+    @contextmanager
+    def _noop(*args, **kwargs):
+        yield
+    return _noop()
+
+# GradScaler shim: enables scaler only when CUDA is available
+# Prefer torch.amp.GradScaler (new API), then torch.cuda.amp.GradScaler, else no-op scaler
+_amp_gradscaler = getattr(torch.amp, 'GradScaler', None)
+_cuda_gradscaler = getattr(getattr(torch, 'cuda', None), 'amp', None)
+_cuda_gradscaler = getattr(_cuda_gradscaler, 'GradScaler', None)
+
+if _amp_gradscaler is None and _cuda_gradscaler is None:
+    class _NoopGradScaler:
+        def __init__(self, enabled=True, *args, **kwargs):
+            self.enabled = enabled
+        def scale(self, loss):
+            return loss
+        def unscale_(self, optimizer):
+            return
+        def step(self, optimizer):
+            return optimizer.step()
+        def update(self):
+            return
+    _amp_gradscaler = _NoopGradScaler
+
+class _GradScalerWrapper:
+    def __init__(self, *args, **kwargs):
+        enabled = kwargs.pop('enabled', device.type == 'cuda')
+
+        # New API first: torch.amp.GradScaler(device_type, ...)
+        if _amp_gradscaler is not None:
+            try:
+                if args:
+                    self._scaler = _amp_gradscaler(*args, enabled=enabled, **kwargs)
+                else:
+                    device_type = 'cuda' if device.type == 'cuda' else 'cpu'
+                    self._scaler = _amp_gradscaler(device_type, enabled=enabled, **kwargs)
+                return
+            except TypeError:
+                try:
+                    self._scaler = _amp_gradscaler(*args, **kwargs)
+                    return
+                except TypeError:
+                    pass
+
+        # Compatibility fallback for older torch versions
+        if _cuda_gradscaler is not None:
+            try:
+                self._scaler = _cuda_gradscaler(enabled=enabled)
+            except TypeError:
+                self._scaler = _cuda_gradscaler()
+            return
+
+        # Final safe fallback (only if a no-op scaler was installed above)
+        self._scaler = _amp_gradscaler(enabled=enabled)
+
+    def __getattr__(self, name):
+        return getattr(self._scaler, name)
+
+torch.amp.GradScaler = _GradScalerWrapper
 """
 
     script_path = iteration_dir / "train.py"
-    # Inject the math overrides immediately after the header imports, before the LLM code
-    script_path.write_text(header + "\n" + MATH_INJECTION + "\n" + code, encoding="utf-8")
+    # Inject device shim and math helpers before the generated code, then restore
+    # the aliases at the end so any later redeclarations in generated code do not
+    # overwrite the injected implementations.
+    script_path.write_text(
+        header + "\n" + DEVICE_COMPAT_INJECTION + "\n" + MATH_INJECTION + "\n" + code + "\n"
+        + "\n# Restore injected math helpers after generated code\n"
+        + "FocalLoss = _InjectedFocalLoss\n"
+        + "mixup_data = _injected_mixup_data\n",
+        encoding="utf-8",
+    )
 
     logger.info("Generated training script: %s", script_path)
     return script_path
@@ -646,6 +806,16 @@ def _fallback_training_script() -> str:
     import pathlib
     from data_loader import build_train_val_dataloaders
 
+    def resolve_device(allow_cpu_fallback=True):
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+            torch.backends.cudnn.benchmark = True
+            return device
+        if allow_cpu_fallback:
+            print("CUDA unavailable; falling back to CPU.")
+            return torch.device("cpu")
+        raise RuntimeError("CUDA is not available.")
+
     DATA_DIR = "/mnt/disks/data/birdclef"
     METADATA_FILE = DATA_DIR + "/train.csv"
     train_loader, val_loader = build_train_val_dataloaders(
@@ -656,7 +826,7 @@ def _fallback_training_script() -> str:
         val_split=0.2,
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device()
 
     class SimpleModel(nn.Module):
         def __init__(self, num_classes):
@@ -896,63 +1066,63 @@ def get_iteration_bucket_dir(experiments_dir: Path, global_iter: int, bucket_siz
     return bucket_dir
 
 
-def manage_model_checkpoints(
-    state: Dict,
-    iteration_id: str,
-    iteration_dir: Path,
-    auc: float,
-    keep_top_n: int = 1,
-) -> Dict:
-    """
-    Manage model checkpoints to keep only the top N best models.
-    Deletes older model files when a better one is found.
+# def manage_model_checkpoints(
+#     state: Dict,
+#     iteration_id: str,
+#     iteration_dir: Path,
+#     auc: float,
+#     keep_top_n: int = 1,
+# ) -> Dict:
+#     """
+#     Manage model checkpoints to keep only the top N best models.
+#     Deletes older model files when a better one is found.
     
-    Parameters
-    ----------
-    state: Current agent state dict
-    iteration_id: Current iteration identifier
-    iteration_dir: Path to current iteration directory
-    auc: AUC score for current iteration
-    keep_top_n: Number of top models to keep (default: 1, options: 1 or 3)
+#     Parameters
+#     ----------
+#     state: Current agent state dict
+#     iteration_id: Current iteration identifier
+#     iteration_dir: Path to current iteration directory
+#     auc: AUC score for current iteration
+#     keep_top_n: Number of top models to keep (default: 1, options: 1 or 3)
     
-    Returns
-    -------
-    Updated state dict with top_models list
-    """
-    model_path = iteration_dir / "model.pt"
+#     Returns
+#     -------
+#     Updated state dict with top_models list
+#     """
+#     model_path = iteration_dir / "model.pt"
     
-    # Initialize top_models list if not present
-    if "top_models" not in state:
-        state["top_models"] = []  # List of dicts: {"auc": X, "path": Y, "iteration": Z}
+#     # Initialize top_models list if not present
+#     if "top_models" not in state:
+#         state["top_models"] = []  # List of dicts: {"auc": X, "path": Y, "iteration": Z}
     
-    # Add current model to tracking (if model.pt exists)
-    if model_path.exists():
-        state["top_models"].append({
-            "auc": auc,
-            "path": str(model_path),
-            "iteration": iteration_id,
-        })
+#     # Add current model to tracking (if model.pt exists)
+#     if model_path.exists():
+#         state["top_models"].append({
+#             "auc": auc,
+#             "path": str(model_path),
+#             "iteration": iteration_id,
+#         })
         
-        # Sort by AUC (descending) and keep only top N
-        state["top_models"].sort(key=lambda x: x["auc"], reverse=True)
+#         # Sort by AUC (descending) and keep only top N
+#         state["top_models"].sort(key=lambda x: x["auc"], reverse=True)
         
-        # Delete models outside top N
-        for model_info in state["top_models"][keep_top_n:]:
-            old_path = Path(model_info["path"])
-            if old_path.exists():
-                old_path.unlink()
-                logger.info("Deleted old model: %s (AUC: %.4f)", old_path, model_info["auc"])
+#         # Delete models outside top N
+#         for model_info in state["top_models"][keep_top_n:]:
+#             old_path = Path(model_info["path"])
+#             if old_path.exists():
+#                 old_path.unlink()
+#                 logger.info("Deleted old model: %s (AUC: %.4f)", old_path, model_info["auc"])
         
-        # Keep only top N in the list
-        state["top_models"] = state["top_models"][:keep_top_n]
+#         # Keep only top N in the list
+#         state["top_models"] = state["top_models"][:keep_top_n]
         
-        logger.info(
-            "Top %d models: %s",
-            keep_top_n,
-            ", ".join([f"{m['iteration']}(AUC={m['auc']:.4f})" for m in state["top_models"]]),
-        )
+#         logger.info(
+#             "Top %d models: %s",
+#             keep_top_n,
+#             ", ".join([f"{m['iteration']}(AUC={m['auc']:.4f})" for m in state["top_models"]]),
+#         )
     
-    return state
+#     return state
 
 
 def load_state(experiments_dir: Path) -> Dict:
@@ -981,10 +1151,7 @@ def update_state(state: Dict, iteration_id: str, results: Dict, iteration_dir: P
         {"iteration": iteration_id, "auc": auc, "metrics": metrics}
     )
     
-    # Manage model checkpoints: keep only the best model (or top 3 if you prefer)
-    # Change keep_top_n to 3 if you want to keep 3 models instead of 1
-    state = manage_model_checkpoints(state, iteration_id, iteration_dir, auc, keep_top_n=1)
-    
+   
     state["iteration"] += 1
     return state
 
@@ -1083,8 +1250,8 @@ def run_agent(
       
         # --- Step 6: Analyse ---
         import time
-        logger.info("Giving Ollama 15 seconds to load the model back into VRAM...")
-        time.sleep(15)
+        logger.info("Giving Ollama %d seconds to load the model back into VRAM...")
+      
         try:
             analysis = analyse_results(llm, results, task_context, iteration_dir)
             logger.info("Analysis snippet: %s", analysis[:400])

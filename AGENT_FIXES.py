@@ -1,3 +1,57 @@
+# GradScaler shim: enables scaler only when CUDA is available
+# Prefer torch.amp.GradScaler (new API), then torch.cuda.amp.GradScaler, else no-op scaler
+_amp_gradscaler = getattr(torch.amp, 'GradScaler', None)
+_cuda_gradscaler = getattr(getattr(torch, 'cuda', None), 'amp', None)
+_cuda_gradscaler = getattr(_cuda_gradscaler, 'GradScaler', None)
+
+if _amp_gradscaler is None and _cuda_gradscaler is None:
+    class _NoopGradScaler:
+        def __init__(self, enabled=True, *args, **kwargs):
+            self.enabled = enabled
+        def scale(self, loss):
+            return loss
+        def unscale_(self, optimizer):
+            return
+        def step(self, optimizer):
+            return optimizer.step()
+        def update(self):
+            return
+    _amp_gradscaler = _NoopGradScaler
+
+class _GradScalerWrapper:
+    def __init__(self, *args, **kwargs):
+        enabled = kwargs.pop('enabled', device.type == 'cuda')
+
+        # New API first: torch.amp.GradScaler(device_type, ...)
+        if _amp_gradscaler is not None:
+            try:
+                if args:
+                    self._scaler = _amp_gradscaler(*args, enabled=enabled, **kwargs)
+                else:
+                    device_type = 'cuda' if device.type == 'cuda' else 'cpu'
+                    self._scaler = _amp_gradscaler(device_type, enabled=enabled, **kwargs)
+                return
+            except TypeError:
+                try:
+                    self._scaler = _amp_gradscaler(*args, **kwargs)
+                    return
+                except TypeError:
+                    pass
+
+        # Compatibility fallback for older torch versions
+        if _cuda_gradscaler is not None:
+            try:
+                self._scaler = _cuda_gradscaler(enabled=enabled)
+            except TypeError:
+                self._scaler = _cuda_gradscaler()
+            return
+
+        # Final safe fallback (only if a no-op scaler was installed above)
+        self._scaler = _amp_gradscaler(enabled=enabled)
+    def __getattr__(self, name):
+        return getattr(self._scaler, name)
+
+torch.amp.GradScaler = _GradScalerWrapper
 # CRITICAL FIXES FOR agent.py - KAGGLE SUBMISSION PIPELINE
 # ============================================================
 # Replace the old KAGGLE_INFERENCE_TEMPLATE with this corrected version.
@@ -389,7 +443,7 @@ def propose_and_generate_code_UPDATED(
     # Math injection
     MATH_INJECTION = """
 # OVERRIDE: Mathematically Sound Multi-Label Continuous Focal Loss
-class FocalLoss(nn.Module):
+class _InjectedFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
         self.alpha = alpha
@@ -405,7 +459,7 @@ class FocalLoss(nn.Module):
         return loss.sum(dim=1).mean()
 
 # OVERRIDE: Multi-Label Mixup (Direct Label Blending)
-def mixup_data(x, y, alpha=0.2):
+def _injected_mixup_data(x, y, alpha=0.2):
     if alpha > 0:
         lam = np.random.beta(alpha, alpha)
     else:
@@ -414,12 +468,23 @@ def mixup_data(x, y, alpha=0.2):
     index = torch.randperm(batch_size).to(x.device)
 
     mixed_x = lam * x + (1 - lam) * x[index, :]
+    mixed_y = lam * y + (1 - lam) * y[index, :]
 
-    return mixed_x, y, y[index, :], lam
+    return mixed_x, mixed_y
+
+FocalLoss = _InjectedFocalLoss
+mixup_data = _injected_mixup_data
 """
 
     script_path = iteration_dir / "train.py"
-    script_path.write_text(header + "\n" + MATH_INJECTION + "\n" + code, encoding="utf-8")
+    # Write the helpers before generated code, then restore the aliases after it.
+    script_path.write_text(
+        header + "\n" + MATH_INJECTION + "\n" + code + "\n"
+        + "\n# Restore injected math helpers after generated code\n"
+        + "FocalLoss = _InjectedFocalLoss\n"
+        + "mixup_data = _injected_mixup_data\n",
+        encoding="utf-8",
+    )
     logger.info("Generated training script: %s", script_path)
 
     # ===================================================================

@@ -1,5 +1,5 @@
 {
-  "iteration": 204,
+  "iteration": 217,
   "best_auc": 0.9608865077280887,
   "best_iteration": "iter_0200_20260518_092346",
   "history": [
@@ -1412,6 +1412,79 @@
         "training_samples": 15000,
         "eval_samples": 3000
       }
+    },
+    {
+      "iteration": "iter_0204_20260520_125903",
+      "auc": 0.5,
+      "metrics": {
+        "final_train_loss": 0.64406766953753,
+        "final_auc": 0.5,
+        "num_params": 7274158,
+        "epochs_trained": 4,
+        "batch_size": 32,
+        "training_samples": 15000,
+        "eval_samples": 3000
+      }
+    },
+    {
+      "iteration": "iter_0205_20260520_132749",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0206_20260520_173058",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0207_20260520_173527",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0208_20260520_173816",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0209_20260520_182624",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0210_20260520_183317",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0211_20260520_183625",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0212_20260520_192734",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0213_20260520_193305",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0214_20260520_193628",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0215_20260520_194606",
+      "auc": 0.0,
+      "metrics": {}
+    },
+    {
+      "iteration": "iter_0216_20260520_195116",
+      "auc": 0.0,
+      "metrics": {}
     }
   ],
   "top_models": [
