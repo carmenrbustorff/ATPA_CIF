@@ -231,14 +231,14 @@ def main():
     experiments_dir = args.experiments_dir or Path(__file__).parent / "experiments"
     state = load_agent_state(experiments_dir)
     
-    print("📊 Generating comprehensive results report...")
+    print(" Generating comprehensive results report...")
     report = generate_markdown_report(state, experiments_dir)
     
     output_file = Path(args.output)
     output_file.write_text(report)
     
-    print(f"✅ Report saved to: {output_file}")
-    print(f"\n📈 Summary:")
+    print(f" Report saved to: {output_file}")
+    print(f"\n Summary:")
     print(f"   - Total iterations: {state['iteration']}")
     print(f"   - Best AUC: {state['best_auc']:.4f}")
     print(f"   - Best iteration: {state['best_iteration']}")
