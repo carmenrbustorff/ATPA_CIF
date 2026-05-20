@@ -25,6 +25,22 @@ ATPA_CIF/
 └── README.md
 ```
 
+### High-level layout (quick navigation)
+
+- `train.py`: main local training entrypoint (PyTorch baseline training loop).
+- `data_loader.py` (+ `data_loader_cached.py`, `data_loader_francisca.py`): data loading and on-the-fly audio/mel preprocessing.
+- `models.py`: model builders used by training and evaluation code.
+- `config.py`: shared constants (audio parameters, paths, species count, etc.).
+- `experiments/`: iteration outputs and generated experiment scripts; many per-iteration `train.py` and `inference.py` files live here.
+- `submission_related/general/inference.py`: standalone Kaggle-style inference pipeline and submission helpers.
+- `generate_submission.py`: notebook generator for competition submission workflows.
+- `helpers/` and `kaggle_upload/`: supporting utilities for runs and Kaggle packaging/upload flow.
+
+**Where to look first**
+- **Training code:** `train.py` (root) and generated `experiments/**/train.py`.
+- **Inference code:** `submission_related/general/inference.py` and experiment-specific `experiments/**/inference*.py`.
+- **Data-loading code:** `data_loader.py` (primary), with variants in `data_loader_cached.py` and `data_loader_francisca.py`.
+
 ---
 
 ## Setup
