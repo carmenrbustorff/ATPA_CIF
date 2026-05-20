@@ -83,7 +83,7 @@ Validation AUC Debug:
     Fed raw integers to BCEWithLogitsLoss, which evaluated them as target weights of 150.0 instead of a target probability of 1.0. The model collapsed into predicting uniform probabilities (flat base rate), yielding random-guessing performance (0.5000 AUC).Training: Escaped this because a custom mixup_collate_fn performed a hidden conversion layer that masked the issue during the forward pass.
 
 Iteration 2: The Regularization Penalty
-    Objective: Mitigate the severe domain shift observed between the local validation AUC (0.9329) and Kaggle hidden test set AUC (0.653) from Iteration 1.Architecture: efficientnet_b1 (1-channel, scaled from B0) with a 512-dimensional custom classification head.
+    Objective: Mitigate the severe domain shift observed between the local validation AUC (0.9329) and Kaggle hidden test set AUC (0.653) from Iteration 1. Architecture: efficientnet_b1 (1-channel, scaled from B0) with a 512-dimensional custom classification head.
     Loss Function: Focal Loss ($\gamma=2.0$, $\alpha=0.25$) to penalize errors on minority classes.
     Augmentation Strategy: SpecAugment (Time/Frequency masking) + Gaussian Noise Injection ($\sigma=0.03$) applied directly to the log-mel spectrograms.
     Results:
@@ -123,3 +123,31 @@ Despite the containment, the score remained a flatline 0.500. A review of the tr
 A critical mathematical domain shift was then identified in the spectrogram extraction pipeline. The inference script was utilizing decibel conversion, while the model had been trained purely on natural logarithms. We reverted the extraction function to strictly use the natural logarithm, aligning the evaluation mathematics precisely with the training environment and unfreezing the network's activations.
 
 Finally, we bypassed a Kaggle-specific evaluation trap where the hidden sample submission template truncated valid predictions due to missing row indices. We removed the index-based update method entirely and implemented a dynamic dataframe construction. This forced the pipeline to export every processed chunk as a new row, ensuring the actual probability distributions for the full hidden dataset were accurately mapped and submitted for grading.
+
+While the kaggle submission kept failing we tried various different approaches to fix it. The script was not handling exceptions properly, which caused it to fail before it could write the submission file. We implemented a robust try/except block around the entire inference loop to catch any exceptions and write a default submission file with zeros for any failed chunks. This allowed the script to complete successfully and submit a valid file, unfourtunately resulting in kaggle scores of 0.5000. We believe this is due to a domain shift between the training and inference pipelines, specifically related to the spectrogram extraction. However, limited to 5 submissions a day, with, on average 3 failed ones, we had no space left for mistakes and after consulting with the course staff, we started to suspect overfitting of our star model (iteration 200). 
+
+For iterations 202+, we pivoted to a strict anti overfit strategy and enhanced data augmentation to better match kaggle's hidden test set. This has proved to the be one of the biggest challenges of the project, as the agent is very prone to overfitting and memorizing the training data, which results in very high local validation AUC but very low kaggle hidden test set AUC. We have implemented a strict regularization strategy, including SpecAugment, Mixup, and Focal Loss, to try to mitigate this issue. We have also implemented a robust exception handling mechanism in the inference script to ensure that it can handle any corrupted audio files or unexpected issues without crashing the entire pipeline.
+
+maybe found a culprit: 
+    If roc_auc_score raises any exception (common causes: a class has only one label value across samples, mismatched shapes, or non-binary targets), the code falls back to a safe baseline value of 0.5 (the expected AUC of a random classifier). Likewise, if no valid classes are present, it sets current_auc to 0.5 immediately. This pattern ensures the training loop always has a numeric AUC to report and avoids crashing on degenerate validation splits.
+ Traced the validation path in `train.py` and generated experiment script variants. Confirmed the AUC calculation uses a column mask (present/valid classes) and falls back to a default `0.5000` when `roc_auc_score` raises or no valid classes remain.
+The epoch that reported `0.5000` was not a true performance improvement but a metric fallback caused by either (a) all-zero or single-label columns in the validation slice, or (b) an exception from `roc_auc_score` (shape/format issues). Training loss continued to decline while validation signal stayed at chance, indicating memorization or a collapsed prediction strategy.
+
+The math injections where being placed on the wrong part of the train.py generated by the agent so that had to be fixed:
+Changes made:
+    - Made math helpers durable by defining private implementations (`_InjectedFocalLoss`, `_injected_mixup_data`) and aliasing them (`FocalLoss`, `mixup_data`) before generated code.
+    - Implemented a robust `GradScaler` shim that prefers the `torch.amp` V2 API, falls back to `torch.cuda.amp`, and provides a `_NoopGradScaler` for CPU-only runs.
+    - Added style-aware `mixup_data` injection to handle both 2-value and 4-value unpacking patterns emitted by the LLM.
+    - Escaped braces in the agent `TASK_CONTEXT_TEMPLATE` to avoid `.format()` KeyErrors and shortened the model-reload pause for better interactivity.
+    - added more frequent per-batch heartbeats/logging and reduced artificial pauses so runs show live progress in the terminal.
+    - syntax and static checks passed for modified files; smoke runs verified GradScaler selection and removed previous FutureWarnings.
+
+After deeper investigating, we decided to explore train_soundscapes for a more robust model, that more closely aligns with the hidden test set. However, after switching to the new dataset, the training runs were logging many "Skipping corrupted file" warnings and validation AUC repeatedly fell to 0.50. We identified several issues in the data loading and metric calculation that were causing these problems, and implemented fixes to stabilize the training loop and ensure valid AUC calculations.
+    Data loader fix `data_loader.py` updated to resolve CSV filenames against the requested audio root and to fall back to the legacy `train_audio/` tree when needed; replaced fragile .ogg loading with `soundfile`-backed reads, added resampling and robust waveform handling.
+    Replaced unbounded recursive retry in `__getitem__` with a bounded retry loop and explicit error on repeated failures; pre-filter missing rows at dataset init and log counts (resolved / legacy_fallback / skipped).
+    Replaced the single-call `roc_auc_score(..., average='macro')` with a per-class AUC loop that skips classes without both positive and negative examples, averages defined per-class AUCs, and steps the `ReduceLROnPlateau` scheduler.
+    Ran dataset and dataloader smoke tests in the project venv — dataset initialises (35,549 rows resolved to legacy `train_audio`), dataloader returns batches with expected shape `(batch, 1, 128, 313)`. Per-class AUC probe over a small validation slice: 87–186 classes scored depending on slice size; random baseline ~0.49 as expected.
+Repository note: Added a short repo memory file documenting the `train_audio` vs `train_soundscapes` layout mismatch and the loader resolution behaviour.
+
+Final iteration: 217: The agent successfully implemented the full training pipeline for one last time, reaching AUCs upwards of 0.89.
+
