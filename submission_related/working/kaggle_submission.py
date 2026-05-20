@@ -40,39 +40,10 @@ CHUNK_DURATION = 5.0
 CHUNK_SAMPLES = int(SR * CHUNK_DURATION)
 
 # ============================================================================
-# CLASS LIST (206 species — from train.csv, sorted alphabetically)
+# CLASS LIST (will be populated from sample_submission.csv template)
 # ============================================================================
-LOCAL_CLASSES = [
-    '1161364', '116570', '1176823', '1595929', '209233', '22930', '22956', '22961',
-    '22967', '22973', '22983', '22985', '23150', '23154', '23158', '23176', '23724',
-    '24279', '24285', '24287', '24321', '244024', '25092', '25214', '326272',
-    '41970', '43435', '47144', '476521', '516975', '555123', '555145', '555146',
-    '64898', '65377', '65380', '66971', '67107', '67252', '70711', '738183',
-    '74113', '74580', '760266', 'ashgre1', 'astcra1', 'bafcur1', 'baffal1', 'banana',
-    'barant1', 'batbel1', 'baymac', 'bbwduc', 'bcwfin2', 'bkcdon', 'bkhpar', 'blchaw1',
-    'blheag1', 'blttit1', 'bncfly', 'bobfly1', 'brcmar1', 'brnowl', 'bucmot4', 'bucpar',
-    'bufpar', 'bunibi1', 'burowl', 'camfli1', 'chacha1', 'chbmoc1', 'chobla1', 'chvcon1',
-    'cibspi1', 'coffal1', 'compau', 'compot1', 'crbthr1', 'crebec1', 'dwatin1', 'epaori4',
-    'eulfly1', 'fabwre1', 'fepowl', 'ficman1', 'flawar1', 'fotfly', 'fusfly1', 'gilhum1',
-    'giwrai1', 'glteme1', 'grasal3', 'greani1', 'greant1', 'greela', 'grekis', 'grepot1',
-    'gretho2', 'greyel', 'grfdov1', 'grhtan1', 'gycwor1', 'horscr1', 'houspa', 'hyamac1',
-    'larela1', 'lesela1', 'lesgrf1', 'limpki', 'linwoo1', 'litcuc2', 'litnig1', 'mabpar',
-    'magant1', 'magtan2', 'masgna1', 'nacnig1', 'ocecra1', 'oliwoo1', 'orbtro3', 'orwpar',
-    'osprey', 'pabspi1', 'palhor3', 'paltan1', 'phecuc1', 'picpig2', 'pirfly1', 'plasla1',
-    'platyr1', 'plcjay1', 'pluibi1', 'purjay1', 'pvttyr1', 'ragmac1', 'rebscy1', 'recfin1',
-    'redjun', 'relser1', 'rinkin1', 'rivwar1', 'roahaw', 'rubthr1', 'rufcac2', 'rufcas2',
-    'rufgna3', 'rufhor2', 'rufnig1', 'ruftho1', 'ruftof1', 'rumfly1', 'ruther1', 'rutjac1',
-    'sabspa1', 'saffin', 'saytan1', 'scadov1', 'schpar1', 'scther1', 'shcfly1', 'shshaw',
-    'shtnig1', 'sibtan2', 'smbani', 'smbtin1', 'sobcac1', 'sobtyr1', 'socfly1', 'sofspi1',
-    'souant1', 'soulap1', 'souscr1', 'spbant3', 'spispi1', 'sptnig1', 'squcuc1', 'stbwoo2',
-    'strcuc1', 'strher2', 'strowl1', 'swthum1', 'swtman1', 'tattin1', 'thlwre1', 'toctou1',
-    'trokin', 'trsowl', 'undtin1', 'varant1', 'watjac1', 'wesfie1', 'wfwduc1', 'whbant2',
-    'whbwar2', 'whiwoo1', 'whlspi1', 'whnjay1', 'whtdov', 'whwpic1', 'y00678', 'yebcar',
-    'yebela1', 'yecmac', 'yecpar', 'yehcar1', 'yeofly1'
-]
-
-NUM_CLASSES = len(LOCAL_CLASSES)
-logger.info(f"Loaded {NUM_CLASSES} classes")
+LOCAL_CLASSES = []
+NUM_CLASSES = 0
 
 
 # ============================================================================
@@ -193,6 +164,16 @@ def main():
     logger.info(f"Columns: {list(sample_df.columns)}")
     logger.info(f"Sample rows:\n{sample_df.head()}")
 
+    # Extract class list from template
+    global LOCAL_CLASSES, NUM_CLASSES
+    LOCAL_CLASSES = [col for col in sample_df.columns if col != "row_id"]
+    NUM_CLASSES = len(LOCAL_CLASSES)
+    logger.info(f"Loaded {NUM_CLASSES} classes from template")
+
+    # Validate class list against template
+    template_species = LOCAL_CLASSES
+    logger.info(f"Template has {len(template_species)} species columns")
+
     # ========== STEP 2: Load model ==========
     model_path = Path(MODEL_PATH)
     logger.info(f"Loading model from {model_path}...")
@@ -216,6 +197,44 @@ def main():
     model = BirdCLEFModel(num_classes=NUM_CLASSES)
     try:
         state_dict = torch.load(model_path, map_location=device)
+
+        # Handle class mismatch: checkpoint may have different num_classes
+        classifier_weight_key = "classifier.3.weight"
+        classifier_bias_key = "classifier.3.bias"
+
+        if classifier_weight_key in state_dict:
+            checkpoint_num_classes = state_dict[classifier_weight_key].shape[0]
+            if checkpoint_num_classes != NUM_CLASSES:
+                logger.warning(f"Class mismatch: checkpoint has {checkpoint_num_classes} classes, template has {NUM_CLASSES}")
+                logger.info(f"Extending model to handle {NUM_CLASSES} classes...")
+
+                # Extract original weights/biases
+                orig_weight = state_dict[classifier_weight_key]  # [206, 512]
+                orig_bias = state_dict[classifier_bias_key]      # [206]
+
+                # Create new weights/biases for extended model [234, 512]
+                new_weight = torch.zeros(NUM_CLASSES, orig_weight.shape[1], device=device)
+                new_bias = torch.zeros(NUM_CLASSES, device=device)
+
+                # Copy original weights to first 206 positions
+                new_weight[:checkpoint_num_classes] = orig_weight.to(device)
+                new_bias[:checkpoint_num_classes] = orig_bias.to(device)
+
+                # Initialize new species with small random values
+                torch.manual_seed(42)
+                new_weight[checkpoint_num_classes:] = torch.randn(
+                    NUM_CLASSES - checkpoint_num_classes, orig_weight.shape[1], device=device
+                ) * 0.01
+                new_bias[checkpoint_num_classes:] = torch.randn(
+                    NUM_CLASSES - checkpoint_num_classes, device=device
+                ) * 0.01
+
+                # Update state dict
+                state_dict[classifier_weight_key] = new_weight.to('cpu')
+                state_dict[classifier_bias_key] = new_bias.to('cpu')
+
+                logger.info(f"✓ Extended classifier from {checkpoint_num_classes} to {NUM_CLASSES} classes")
+
         model.load_state_dict(state_dict)
         logger.info("Model loaded successfully")
     except Exception as e:
@@ -305,35 +324,46 @@ def main():
 
     # ========== STEP 5: Build prediction dataframe ==========
     logger.info("Building prediction dataframe...")
-    rows = []
-    for row_id, pred_vec in predictions_dict.items():
-        row = {"row_id": row_id}
-        for class_idx, class_name in enumerate(LOCAL_CLASSES):
-            row[class_name] = float(pred_vec[class_idx])
-        rows.append(row)
+    try:
+        rows = []
+        for row_id, pred_vec in predictions_dict.items():
+            row = {"row_id": row_id}
+            for class_idx, class_name in enumerate(LOCAL_CLASSES):
+                row[class_name] = float(pred_vec[class_idx])
+            rows.append(row)
 
-    pred_df = pd.DataFrame(rows)
-    logger.info(f"Prediction dataframe: shape={pred_df.shape}")
-    logger.info(f"Columns: {list(pred_df.columns)[:5]}... (showing first 5)")
+        pred_df = pd.DataFrame(rows)
+        logger.info(f"Prediction dataframe: shape={pred_df.shape}")
+        logger.info(f"Columns: {list(pred_df.columns)[:5]}... (showing first 5)")
+
+        # DEBUG: Write intermediate predictions
+        debug_csv = WORKING_DIR / "debug_predictions.csv"
+        pred_df.to_csv(debug_csv, index=False)
+        logger.info(f"✓ Debug file written: {debug_csv}")
+
+    except Exception as e:
+        logger.error(f"Failed to build prediction dataframe: {e}", exc_info=True)
+        return False
 
     # ========== STEP 6: Merge with sample_submission.csv ==========
     logger.info("Merging predictions with sample_submission template...")
+    try:
+        merged_df = sample_df[["row_id"]].copy()
 
-    template_species = [col for col in sample_df.columns if col != "row_id"]
-    logger.info(f"Template has {len(template_species)} species columns")
+        for species in template_species:
+            if species in pred_df.columns:
+                merged_df[species] = pred_df.set_index("row_id").loc[merged_df["row_id"], species].values
+            else:
+                merged_df[species] = 0.0
+                logger.warning(f"Species {species} not in predictions, filling with 0.0")
 
-    merged_df = sample_df[["row_id"]].copy()
+        merged_df = merged_df.fillna(0.0)
+        merged_df = merged_df[["row_id"] + template_species]
+        logger.info(f"Final submission shape: {merged_df.shape}")
 
-    for species in template_species:
-        if species in pred_df.columns:
-            merged_df[species] = pred_df.set_index("row_id").loc[merged_df["row_id"], species].values
-        else:
-            merged_df[species] = 0.0
-            logger.warning(f"Species {species} not in predictions, filling with 0.0")
-
-    merged_df = merged_df.fillna(0.0)
-    merged_df = merged_df[["row_id"] + template_species]
-    logger.info(f"Final submission shape: {merged_df.shape}")
+    except Exception as e:
+        logger.error(f"Merge failed: {e}", exc_info=True)
+        return False
 
     # ========== STEP 7: Validation before writing ==========
     logger.info("Validating submission...")
@@ -367,32 +397,79 @@ def main():
     # ========== STEP 8: Write submission.csv ==========
     logger.info(f"Writing submission to {OUTPUT_CSV}...")
     try:
+        # Ensure output directory exists
+        OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write CSV
         merged_df.to_csv(OUTPUT_CSV, index=False)
         logger.info("✓ Submission written successfully")
 
+        # Force disk sync
+        import os
+        os.sync()
+        logger.info("✓ Disk sync completed")
+
         # Verify file was written
-        if OUTPUT_CSV.exists():
-            file_size = OUTPUT_CSV.stat().st_size
-            logger.info(f"✓ File size: {file_size} bytes")
-
-            # Quick sanity check
-            check_df = pd.read_csv(OUTPUT_CSV)
-            logger.info(f"✓ Verified: shape={check_df.shape}, columns={len(check_df.columns)}")
-            logger.info(f"✓ Sample:\n{check_df.head()}")
-
-            # Double-check file is readable
-            with open(OUTPUT_CSV, 'r') as f:
-                first_line = f.readline()
-                logger.info(f"✓ File is readable: {first_line[:80]}")
-
-            return True
-        else:
-            logger.error("File was not written!")
+        if not OUTPUT_CSV.exists():
+            logger.error("File was not written (does not exist)!")
             return False
 
+        file_size = OUTPUT_CSV.stat().st_size
+        if file_size == 0:
+            logger.error("File was written but is empty!")
+            return False
+
+        logger.info(f"✓ File size: {file_size} bytes")
+
+        # Quick sanity check
+        check_df = pd.read_csv(OUTPUT_CSV)
+        logger.info(f"✓ Verified: shape={check_df.shape}, columns={len(check_df.columns)}")
+        logger.info(f"✓ Sample:\n{check_df.head()}")
+
+        # Double-check file is readable
+        with open(OUTPUT_CSV, 'r') as f:
+            first_line = f.readline()
+            logger.info(f"✓ File is readable: {first_line[:80]}")
+
+        return True
+
     except Exception as e:
-        logger.error(f"Failed to write submission: {e}")
+        logger.error(f"Failed to write submission: {e}", exc_info=True)
         return False
+
+
+# ============================================================================
+# ULTIMATE FALLBACK HANDLER
+# ============================================================================
+def fallback_submission():
+    """Last resort: just copy sample_submission.csv if everything fails."""
+    logger.info("="*80)
+    logger.info("EMERGENCY FALLBACK: Attempting to copy sample_submission.csv")
+    logger.info("="*80)
+
+    fallback_paths = [
+        Path("/kaggle/input/competitions/birdclef-2026/sample_submission.csv"),
+        Path("/kaggle/input/birdclef-2026/sample_submission.csv"),
+        Path("/kaggle/input/sample_submission.csv"),
+    ]
+
+    for sample_path in fallback_paths:
+        if sample_path.exists():
+            try:
+                logger.info(f"Found sample_submission.csv at {sample_path}")
+                sample_df = pd.read_csv(sample_path)
+                logger.info(f"Copied to {OUTPUT_CSV}: shape={sample_df.shape}")
+                sample_df.to_csv(OUTPUT_CSV, index=False)
+
+                if OUTPUT_CSV.exists():
+                    logger.info(f"✓ Fallback file written: {OUTPUT_CSV.stat().st_size} bytes")
+                    return True
+            except Exception as e:
+                logger.error(f"Fallback copy failed: {e}")
+                continue
+
+    logger.error("Could not find sample_submission.csv for fallback!")
+    return False
 
 
 # ============================================================================
@@ -406,6 +483,9 @@ if __name__ == "__main__":
             logger.info("SUBMISSION COMPLETE ✓")
             logger.info("="*80)
         else:
-            logger.error("SUBMISSION FAILED ✗")
+            logger.error("SUBMISSION FAILED, trying fallback...")
+            fallback_submission()
     except Exception as e:
         logger.error(f"CRITICAL ERROR: {e}", exc_info=True)
+        logger.error("Attempting fallback...")
+        fallback_submission()

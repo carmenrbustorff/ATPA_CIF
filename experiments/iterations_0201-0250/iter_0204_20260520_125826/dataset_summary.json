@@ -1,0 +1,10 @@
+{
+  "data_dir": "not provided",
+  "timestamp": "2026-05-20T12:58:26.301454+00:00",
+  "audio_files": 0,
+  "unique_species": 0,
+  "total_duration_estimate_s": 0,
+  "notes": [
+    "No data directory found. Using synthetic/demo data for architecture search."
+  ]
+}

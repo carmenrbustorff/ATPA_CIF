@@ -18,8 +18,20 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
 from data_loader import BirdCLEFDataset, METADATA_CSV, AUDIO_DIR, NUM_WORKERS
-from models import build_simple_cnn_torch, build_efficientnet_torch
+from backups.models import build_simple_cnn_torch, build_efficientnet_torch
 from config import NUM_SPECIES
+
+
+def resolve_device() -> torch.device:
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA is not available. This trainer is configured to run on the VM's GPU only. "
+            "Check that the NVIDIA driver is installed and the VM exposes an NVIDIA GPU."
+        )
+    device = torch.device("cuda")
+    torch.backends.cudnn.benchmark = True
+    print(f"Device: {device} ({torch.cuda.get_device_name(0)})")
+    return device
 
 
 def parse_args():
@@ -130,8 +142,7 @@ def main():
     write_metrics()
 
     try:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Device: {device}")
+        device = resolve_device()
 
         full = BirdCLEFDataset(metadata_csv=METADATA_CSV, audio_dir=AUDIO_DIR, augment=args.augment)
         train_idx, val_idx, dropped = stratified_split(full, args.val_split, args.seed)
@@ -150,7 +161,7 @@ def main():
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=args.lr, weight_decay=args.weight_decay
         )
-        scaler = GradScaler(enabled=(device.type == "cuda"))
+        scaler = GradScaler(enabled=True)
 
         best_auc = 0.0
         patience_counter = 0

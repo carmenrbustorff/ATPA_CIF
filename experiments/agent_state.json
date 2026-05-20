@@ -1,5 +1,5 @@
 {
-  "iteration": 217,
+  "iteration": 218,
   "best_auc": 0.9608865077280887,
   "best_iteration": "iter_0200_20260518_092346",
   "history": [
@@ -1485,6 +1485,19 @@
       "iteration": "iter_0216_20260520_195116",
       "auc": 0.0,
       "metrics": {}
+    },
+    {
+      "iteration": "iter_0217_20260520_201519",
+      "auc": 0.908690280472939,
+      "metrics": {
+        "final_train_loss": 0.384714792373338,
+        "final_auc": 0.908690280472939,
+        "num_params": 7274158,
+        "epochs_trained": 20,
+        "batch_size": 32,
+        "training_samples": 15000,
+        "eval_samples": 3000
+      }
     }
   ],
   "top_models": [

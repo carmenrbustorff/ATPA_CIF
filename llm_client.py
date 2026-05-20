@@ -71,6 +71,19 @@ class LLMClient:
                 "Make sure Ollama is running (`ollama serve`)."
             ) from exc
 
+    def _get_json(self, endpoint: str) -> dict:
+        """Low-level HTTP GET using only the standard library."""
+        url = f"{self.base_url}{endpoint}"
+        req = urllib.request.Request(url, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.URLError as exc:
+            raise ConnectionError(
+                f"Cannot reach Ollama at {self.base_url}. "
+                "Make sure Ollama is running (`ollama serve`)."
+            ) from exc
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -158,13 +171,13 @@ class LLMClient:
 
     def list_models(self) -> list[str]:
         """Return a list of model names available in the local Ollama instance."""
-        result = self._post_json("/api/tags", {})
+        result = self._get_json("/api/tags")
         return [m["name"] for m in result.get("models", [])]
 
     def is_available(self) -> bool:
         """Return True if the Ollama server is reachable."""
         try:
-            self._post_json("/api/tags", {})
+            self._get_json("/api/tags")
             return True
         except ConnectionError:
             return False

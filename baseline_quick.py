@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 
 from data_loader import BirdCLEFDataset
-from models import build_simple_cnn_torch
+from backups.models import build_simple_cnn_torch
 from config import NUM_SPECIES
 
 OUT_DIR = Path("/tmp")

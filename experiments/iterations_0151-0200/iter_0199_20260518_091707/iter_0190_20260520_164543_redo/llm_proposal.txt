@@ -1,0 +1,216 @@
+### Improved Model Architecture Proposal
+
+To address the overfitting issue and enhance generalization, we will implement the following improvements:
+
+1. **Reduced Dropout**: Lower dropout from 0.5 to 0.3 to reduce regularization strength.
+2. **L2 Regularization**: Add weight decay in the optimizer to prevent overfitting.
+3. **Test-Time Augmentation (TTA)**: Implement TTA for inference to improve robustness.
+4. **Warmup Scheduler**: Use a linear warm-up scheduler to gradually increase learning rate.
+
+### Updated Code
+
+```python
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from data_loader import build_train_val_dataloaders
+import json
+from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import roc_auc_score
+import timm
+import torchaudio.transforms as T
+
+# 1. Setup
+NUM_SPECIES = 206
+DATA_DIR = "/mnt/disks/data/birdclef"
+METADATA_FILE = os.path.join(DATA_DIR, "train.csv")
+
+# 2. Data Loaders
+batch_size = 32
+train_loader, val_loader = build_train_val_dataloaders(
+    batch_size=batch_size,
+    augment=True,
+    val_split=0.2,
+    num_workers=4,
+    pin_memory=True
+)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 3. Model Architecture (Transfer Learning)
+class BirdCLEFModel(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.base_model = timm.create_model("efficientnet_b0", pretrained=True, in_chans=1, num_classes=0)
+        
+        # Unfreeze the base model weights
+        for param in self.base_model.parameters():
+            param.requires_grad = True 
+            
+        # Bypass Pylance type checking dynamically
+        in_features = getattr(self.base_model, "num_features")
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(in_features, 128),  # type: ignore
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, num_classes)
+        )
+        
+    def forward(self, x):
+        features = self.base_model(x)
+        logits = self.classifier(features)
+        return logits
+
+model = BirdCLEFModel(num_classes=NUM_SPECIES).to(device)
+
+# 4. Optimizer, Loss, AMP Scaler, and Scheduler
+pos_weight = torch.ones([NUM_SPECIES], device=device) * 3.0 
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5) 
+scaler = torch.cuda.amp.GradScaler()  
+max_epochs = 20
+
+# Warmup scheduler
+warmup_steps = int(max_epochs * len(train_loader) * 0.1)
+scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-3, total_iters=warmup_steps)
+
+# --- TRAINING AND VALIDATION LOOPS ---
+all_train_losses = []
+best_auc = 0.0
+
+for epoch in range(max_epochs):
+    model.train()
+    epoch_loss = 0.0
+    
+    for batch_idx, (inputs, labels) in enumerate(train_loader):
+        inputs = inputs.to(device)
+        labels = labels.float().to(device)
+        
+        optimizer.zero_grad()
+        
+        with torch.cuda.amp.autocast():
+            logits = model(inputs)
+            loss = criterion(logits, labels)
+        
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scaler.step(optimizer)
+        scaler.update()
+        
+        epoch_loss += loss.item()
+    
+    avg_epoch_loss = epoch_loss / len(train_loader)
+    all_train_losses.append(avg_epoch_loss)
+    print(f"Epoch {epoch + 1}/{max_epochs}, Train Loss: {avg_epoch_loss:.4f}")
+
+    # Validation Pass (Evaluated every epoch for tracking telemetry)
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs = inputs.to(device)
+            labels = labels.float().to(device)
+            
+            with torch.cuda.amp.autocast():
+                logits = model(inputs)
+                preds = torch.sigmoid(logits).cpu().numpy()
+            
+            all_preds.extend(preds)
+            all_labels.extend(labels.cpu().numpy())
+
+# --- METRIC CALCULATION SKELETON ---
+    all_preds = np.array(all_preds)
+    y_true_multi = np.array(all_labels) 
+
+    # Ensure we only calculate AUC for columns containing both positives and negatives
+    col_sums = np.sum(y_true_multi, axis=0)
+    valid_classes = (col_sums > 0) & (col_sums < len(y_true_multi))
+
+    if np.any(valid_classes):
+        filtered_true = y_true_multi[:, valid_classes]
+        filtered_preds = all_preds[:, valid_classes]
+
+        try:
+            current_auc = float(roc_auc_score(filtered_true, filtered_preds, average='macro'))
+        except Exception as e:
+            print(f"AUC Calculation Error: {e}")  
+            current_auc = 0.5000
+    else:
+        current_auc = 0.5000
+
+    print(f"Epoch {epoch + 1}/{max_epochs}, Validation AUC: {current_auc:.4f}")
+
+    # Tracking Best Weights
+    if current_auc > best_auc:
+        best_auc = current_auc
+        torch.save(model.state_dict(), 'model.pt')
+        print(f"--> Saved new best checkpoint with AUC: {best_auc:.4f}")
+
+# Set global final metric for reporting
+final_auc = best_auc
+
+# Save Metrics (with type ignores to silence Pylance)
+metrics = {
+    "final_train_loss": all_train_losses[-1] if 'all_train_losses' in locals() and all_train_losses else 0.0, # type: ignore
+    "final_auc": final_auc,
+    "num_params": sum(p.numel() for p in model.parameters()),
+    "epochs_trained": max_epochs,
+    "batch_size": batch_size, 
+    "training_samples": len(train_loader.dataset),  # type: ignore
+    "eval_samples": len(val_loader.dataset)  # type: ignore
+}
+
+with open('metrics.json', 'w') as f:
+    json.dump(metrics, f)
+
+print("METRICS: ", json.dumps(metrics))
+
+# --- Test-Time Augmentation (TTA) for Inference ---
+def test_time_augmentation(model, inputs):
+    augmentations = [
+        lambda x: x,
+        lambda x: T.RandomHorizontalFlip(p=1)(x),
+        # Add more augmentations as needed
+    ]
+    
+    all_preds = []
+    for aug in augmentations:
+        augmented_inputs = aug(inputs)
+        with torch.no_grad():
+            logits = model(augmented_inputs.to(device))
+            preds = torch.sigmoid(logits).cpu().numpy()
+        all_preds.append(preds)
+    
+    return np.mean(all_preds, axis=0)
+
+# Inference Code
+def inference(model, test_loader):
+    model.eval()
+    all_preds = []
+    
+    for inputs in test_loader:
+        inputs = inputs.to(device)
+        preds = test_time_augmentation(model, inputs)
+        all_preds.extend(preds)
+    
+    return np.array(all_preds)
+
+# Example usage:
+# Assuming `test_loader` is a DataLoader for the test dataset
+# predictions = inference(model, test_loader)
+```
+
+### Explanation
+
+1. **Reduced Dropout**: The dropout rate was reduced from 0.5 to 0.3 to reduce regularization strength.
+2. **L2 Regularization**: Weight decay of 1e-5 was added to the optimizer to prevent overfitting.
+3. **Warmup Scheduler**: A linear warm-up scheduler was implemented to gradually increase the learning rate.
+4. **Test-Time Augmentation (TTA)**: TTA was implemented by applying multiple augmentations during inference and averaging the predictions.
+
+This approach aims to improve generalization while maintaining robustness to test set distribution shifts.

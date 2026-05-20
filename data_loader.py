@@ -1,9 +1,12 @@
 """
 Memory-efficient PyTorch Dataset and DataLoader for BirdCLEF 2026 (Phase 1).
 
-Reads train.csv, loads .ogg audio from the shared disk at
-/mnt/disks/data/birdclef/train_audio/, and extracts random 5-second
+Reads train.csv, loads .ogg audio from the shared disk, and extracts random 5-second
 mel-spectrogram windows on the fly during training.
+
+The loader resolves each CSV filename against the requested audio root and
+falls back to the legacy `train_audio` tree when the metadata and audio
+layout do not match exactly.
 
 Audio spec:
   - Native sample rate  : 32 kHz
@@ -57,7 +60,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 DATA_ROOT = Path("/mnt/disks/data/birdclef")
 METADATA_CSV = DATA_ROOT / "train.csv"
-AUDIO_DIR = DATA_ROOT / "train_audio"
+AUDIO_DIR = DATA_ROOT / "train_soundscapes"
 
 SAMPLE_RATE = SR
 CLIP_DURATION = CLIP_DURATION
@@ -66,8 +69,8 @@ CLIP_SAMPLES = int(SAMPLE_RATE * CLIP_DURATION)  # 160,000
 N_MELS = N_MELS
 N_FFT = N_FFT
 HOP_LENGTH = HOP_LENGTH
-F_MIN = 50.0
-F_MAX = 14_000.0
+F_MIN = 0.0
+F_MAX = 16_000.0
 TOP_DB = 80.0
 
 # Derived time dimension: ceil(CLIP_SAMPLES / HOP_LENGTH) = 313
@@ -78,7 +81,7 @@ TIME_FRAMES = (CLIP_SAMPLES // HOP_LENGTH) + 1  # 313
 # shared-memory pressure on large datasets.
 MAX_WORKERS = 4
 NUM_WORKERS = min(MAX_WORKERS, max(1, os.cpu_count() - 1))  # type: ignore[arg-type]
-
+NUM_WORKERS = 4
 # Use "fork" on Linux for torchaudio compatibility.
 # Falls back to the default on non-Linux platforms.
 MP_CONTEXT = "fork" if sys.platform == "linux" else None
@@ -134,6 +137,14 @@ class BirdCLEFDataset(Dataset):
         f_max: float = F_MAX,
         top_db: float = TOP_DB,
         augment: bool = False,
+        # Augmentation controls
+        noise_dir: Optional[Path] = Path("/mnt/disks/data/background_noises"),
+        noise_prob: float = 0.4,
+        mix_prob: float = 0.5,
+        snr_min: int = 5,
+        snr_max: int = 15,
+        gain_db: float = 6.0,
+        gain_prob: float = 0.3,
     ) -> None:
         super().__init__()
 
@@ -141,6 +152,20 @@ class BirdCLEFDataset(Dataset):
         self.sample_rate = sample_rate
         self.clip_samples = clip_samples
         self.augment = augment
+        # Augmentation parameters
+        self.noise_dir = Path(noise_dir) if noise_dir is not None else None
+        self.noise_prob = float(noise_prob)
+        self.mix_prob = float(mix_prob)
+        self.snr_min = int(snr_min)
+        self.snr_max = int(snr_max)
+        self.gain_db = float(gain_db)
+        self.gain_prob = float(gain_prob)
+
+        # Build list of available background noise files (lazy-empty list if not present)
+        if self.noise_dir and self.noise_dir.exists():
+            self._noise_files = [p for p in sorted(self.noise_dir.rglob("*.wav")) + sorted(self.noise_dir.rglob("*.ogg")) if p.is_file()]
+        else:
+            self._noise_files = []
 
         # ------------------------------------------------------------------
         # Load metadata and build a flat list of (filepath, label_idx) pairs
@@ -152,18 +177,39 @@ class BirdCLEFDataset(Dataset):
         self.label_to_idx: dict[str, int] = {sp: i for i, sp in enumerate(species)}
         self.idx_to_label: list[str] = species
         self.num_classes: int = len(species)
-
+        
         self._samples: list[Tuple[Path, int]] = []
+        resolved_in_audio_dir = 0
+        resolved_in_legacy_dir = 0
+        skipped_missing = 0
         for _, row in df.iterrows():
-            full_path = self.audio_dir / row["filename"]
             label_idx = self.label_to_idx[row["primary_label"]]
-            self._samples.append((full_path, label_idx))
+            resolved = self._resolve_audio_path(str(row["filename"]))
+            if resolved is None:
+                skipped_missing += 1
+                continue
+
+            if resolved.is_relative_to(self.audio_dir):
+                resolved_in_audio_dir += 1
+            else:
+                resolved_in_legacy_dir += 1
+
+            self._samples.append((resolved, label_idx))
 
         logger.info(
-            "Dataset initialised: %d samples, %d species",
+            "Dataset initialised: %d samples, %d species (resolved=%d, legacy_fallback=%d, skipped=%d)",
             len(self._samples),
             self.num_classes,
+            resolved_in_audio_dir,
+            resolved_in_legacy_dir,
+            skipped_missing,
         )
+        if skipped_missing:
+            logger.warning(
+                "Skipped %d metadata rows because their audio files could not be found under %s or the legacy train_audio tree.",
+                skipped_missing,
+                self.audio_dir,
+            )
 
         # ------------------------------------------------------------------
         # Mel-spectrogram transform (constructed once; shared across workers
@@ -191,6 +237,47 @@ class BirdCLEFDataset(Dataset):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _candidate_audio_paths(self, filename: str) -> list[Path]:
+        """Return possible filesystem locations for a CSV filename."""
+        rel_path = Path(filename)
+        candidate_rel_paths = [rel_path]
+
+        if rel_path.parts and rel_path.parts[0] in {"train_audio", "train_soundscapes"}:
+            candidate_rel_paths.append(Path(*rel_path.parts[1:]))
+
+        candidate_roots = [self.audio_dir]
+        legacy_audio_dir = DATA_ROOT / "train_audio"
+        legacy_soundscape_dir = DATA_ROOT / "train_soundscapes"
+        for root in (legacy_audio_dir, legacy_soundscape_dir):
+            if root not in candidate_roots:
+                candidate_roots.append(root)
+
+        candidates: list[Path] = []
+        for root in candidate_roots:
+            for candidate_rel in candidate_rel_paths:
+                candidates.append(root / candidate_rel)
+                candidates.append(root / candidate_rel.name)
+
+        if rel_path.is_absolute():
+            candidates.insert(0, rel_path)
+
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            candidate_key = str(candidate)
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            deduped.append(candidate)
+        return deduped
+
+    def _resolve_audio_path(self, filename: str) -> Optional[Path]:
+        """Resolve a metadata filename to an existing audio file."""
+        for candidate in self._candidate_audio_paths(filename):
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        return None
 
     def _load_waveform(self, path: Path) -> torch.Tensor:
         """
@@ -242,9 +329,120 @@ class BirdCLEFDataset(Dataset):
 
         # Random Gaussian noise (training only)
         if self.augment:
-            waveform = waveform + torch.randn_like(waveform) * 0.005
+            # Optional: Mix another random bird clip to simulate overlapping birds
+            if self.mix_prob > 0 and random.random() < self.mix_prob and len(self._samples) > 1:
+                # Choose a random other sample file
+                other_path, _ = random.choice(self._samples)
+                if other_path.exists():
+                    other_wav = self._load_waveform_raw(other_path)
+                    snr_db = random.uniform(self.snr_min, self.snr_max)
+                    waveform = self._mix_waveforms(waveform, other_wav, snr_db)
+
+            # Optional: Add background noise from noise_dir
+            if self._noise_files and random.random() < self.noise_prob:
+                noise_path = random.choice(self._noise_files)
+                try:
+                    noise_wav = self._load_waveform_raw(noise_path)
+                    snr_db = random.uniform(self.snr_min, self.snr_max)
+                    waveform = self._mix_waveforms(waveform, noise_wav, snr_db)
+                except Exception:
+                    pass
+
+            # Random gain
+            if random.random() < self.gain_prob:
+                db = random.uniform(-self.gain_db, self.gain_db)
+                waveform = waveform * (10 ** (db / 20.0))
+
+            # Add small Gaussian noise floor
+            waveform = waveform + torch.randn_like(waveform) * 0.002
 
         return waveform  # shape: (1, clip_samples)
+
+    def _load_waveform_raw(self, path: Path) -> torch.Tensor:
+        """
+        Load waveform deterministically (centre-crop / pad) and resample to target rate.
+        Used for mixing/background noises to avoid recursive augmentation.
+        """
+        waveform_np, orig_sr = sf.read(str(path))
+        waveform = torch.from_numpy(waveform_np).float()
+        if waveform.dim() == 2:
+            waveform = waveform.transpose(0, 1)
+        else:
+            waveform = waveform.unsqueeze(0)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if orig_sr != self.sample_rate:
+            if orig_sr not in self._resamplers:
+                self._resamplers[orig_sr] = T.Resample(orig_freq=orig_sr, new_freq=self.sample_rate)
+            waveform = self._resamplers[orig_sr](waveform)
+        total_samples = waveform.shape[-1]
+        if total_samples >= self.clip_samples:
+            start = (total_samples - self.clip_samples) // 2
+            waveform = waveform[:, start : start + self.clip_samples]
+        else:
+            pad = self.clip_samples - total_samples
+            waveform = torch.nn.functional.pad(waveform, (0, pad))
+        return waveform
+
+    def _mix_waveforms(self, sig: torch.Tensor, noise: torch.Tensor, snr_db: float) -> torch.Tensor:
+        """Scale `noise` to achieve desired SNR relative to `sig` and sum them."""
+        # Compute powers
+        sig_power = float((sig ** 2).mean().item()) + 1e-12
+        noise_power = float((noise ** 2).mean().item()) + 1e-12
+        target_ratio = 10 ** ( -snr_db / 10.0)
+        # scale noise so that noise_power * scale^2 = sig_power * target_ratio
+        scale = (sig_power * target_ratio / noise_power) ** 0.5
+        mixed = sig + noise * float(scale)
+        # Avoid clipping: normalise by max absolute value if needed
+        max_val = mixed.abs().max()
+        if max_val > 1.0:
+            mixed = mixed / max_val
+        return mixed
+
+    def _synthesize_noise(self, kind: str = "rain") -> torch.Tensor:
+        """
+        Synthesize a simple background noise waveform of length `self.clip_samples`.
+        Supported kinds: 'rain', 'wind', 'traffic'.
+        These are lightweight approximations (white noise + envelope / smoothing).
+        """
+        # Base white noise
+        noise = torch.randn(1, self.clip_samples)
+
+        if kind == "wind":
+            # Low-pass / smooth to create a rumble-like texture
+            kernel_size = 201
+            pad = kernel_size // 2
+            noise_padded = torch.nn.functional.pad(noise, (pad, pad), mode='reflect')
+            kernel = torch.ones(1, 1, kernel_size, device=noise.device) / float(kernel_size)
+            noise = torch.nn.functional.conv1d(noise_padded.unsqueeze(0), kernel, padding=0).squeeze(0)
+            # gentle amplitude modulation
+            env = 0.5 + 0.5 * torch.sin(torch.linspace(0, 8 * 3.1415, self.clip_samples)).unsqueeze(0)
+            noise = noise * env
+
+        elif kind == "rain":
+            # Sparse high-frequency drops: create spike train envelope
+            rng = torch.rand(1, self.clip_samples)
+            drops = (rng < 0.002).float()
+            noise = noise * drops
+            # add a faint continuous high-frequency hiss
+            noise = noise + 0.05 * torch.randn_like(noise)
+
+        elif kind == "traffic":
+            # band-limited noise: smooth but with lower kernel than wind
+            kernel_size = 51
+            pad = kernel_size // 2
+            noise_padded = torch.nn.functional.pad(noise, (pad, pad), mode='reflect')
+            kernel = torch.ones(1, 1, kernel_size, device=noise.device) / float(kernel_size)
+            noise = torch.nn.functional.conv1d(noise_padded.unsqueeze(0), kernel, padding=0).squeeze(0)
+            # add occasional louder bursts
+            bursts = (torch.rand(1, self.clip_samples) < 0.0008).float() * 5.0
+            noise = noise + bursts
+
+        # Normalize to unit variance to make SNR mixing predictable
+        noise = noise - noise.mean()
+        std = noise.std().clamp(min=1e-6)
+        noise = noise / std
+        return noise
 
     def _waveform_to_melspec(self, waveform: torch.Tensor) -> torch.Tensor:
         """
@@ -272,24 +470,23 @@ class BirdCLEFDataset(Dataset):
         return len(self._samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        try:
-            path, label_idx = self._samples[idx]
-            waveform = self._load_waveform(path)
-            spectrogram = self._waveform_to_melspec(waveform)
-            
-            # --- THE FIX: Convert integer to a 1-hot FloatTensor ---
-            label_tensor = torch.zeros(self.num_classes, dtype=torch.float32)
-            label_tensor[label_idx] = 1.0
-            
-            return spectrogram, label_tensor
-            
-        except Exception as e:
-            # Catch the corrupted file error
-            logger.warning("Skipping corrupted file at index %d: %s", idx, e)
+        last_error: Optional[Exception] = None
+        for attempt in range(4):
+            sample_idx = idx if attempt == 0 else random.randint(0, len(self._samples) - 1)
+            path, label_idx = self._samples[sample_idx]
+            try:
+                waveform = self._load_waveform(path)
+                spectrogram = self._waveform_to_melspec(waveform)
 
-            # Pick a random new index and recursively try again
-            new_idx = random.randint(0, len(self._samples) - 1)
-            return self.__getitem__(new_idx)
+                label_tensor = torch.zeros(self.num_classes, dtype=torch.float32)
+                label_tensor[label_idx] = 1.0
+
+                return spectrogram, label_tensor
+            except Exception as e:
+                last_error = e
+                logger.warning("Skipping unreadable file at index %d: %s", sample_idx, e)
+
+        raise RuntimeError(f"Failed to load audio after retries: {last_error}")
 
 # ---------------------------------------------------------------------------
 # DataLoader factory

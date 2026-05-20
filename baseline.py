@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, random_split
 from sklearn.metrics import roc_auc_score
 import numpy as np
 
-from models import build_simple_cnn_torch
+from backups.models import build_simple_cnn_torch
 from config import NUM_SPECIES
 from data_loader import BirdCLEFDataset, METADATA_CSV, AUDIO_DIR
 

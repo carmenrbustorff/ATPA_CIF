@@ -1,0 +1,7 @@
+{
+  "returncode": 1,
+  "stdout": "Traceback (most recent call last):\n  File \"/home/carme/ATPA_CIF/experiments/iterations_0201-0250/iter_0206_20260520_173058/train.py\", line 53, in <module>\n    from focal_loss import FocalLoss  # Assuming FocalLoss is defined in focal_loss.py\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'focal_loss'\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 10.12
+}

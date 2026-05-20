@@ -56,6 +56,13 @@ ollama serve
 
 The agent connects to `http://127.0.0.1:11434` by default.
 
+The improvement scripts, including `improve_iter_190.py`, require Ollama to be
+running before they start. If you see a preflight failure, launch it with:
+
+```bash
+ollama serve
+```
+
 ### 3 — (Optional) Download the BirdCLEF+ 2026 dataset
 
 ```bash

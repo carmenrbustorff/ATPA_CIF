@@ -1,0 +1,10 @@
+{
+  "data_dir": "/mnt/disks/data/birdclef",
+  "timestamp": "2026-05-20T17:35:27.732818+00:00",
+  "audio_files": 46208,
+  "unique_species": 208,
+  "total_duration_estimate_s": 231040,
+  "notes": [
+    "Found 46208 audio files across 208 species directories."
+  ]
+}

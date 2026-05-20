@@ -1,0 +1,16 @@
+{
+  "returncode": 0,
+  "stdout": "2026-05-20 13:00:56,381 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-20 13:00:58,145 | INFO     | data_loader | Dataset initialised: 35549 samples, 206 species\n2026-05-20 13:00:58,158 | WARNING  | data_loader | Dropped 4 samples from singleton classes.\n2026-05-20 13:00:58,187 | INFO     | data_loader | Stratified split (CAPPED) \u2014 train: 15000  val: 3000  dropped: 4\n2026-05-20 13:00:58,187 | INFO     | data_loader | Train: 469 batches  |  Val: 94 batches  (batch_size=32)\n2026-05-20 13:00:58,330 | INFO     | timm.models._builder | Loading pretrained weights from Hugging Face hub (timm/efficientnet_b1.ra4_e3600_r240_in1k)\n2026-05-20 13:00:58,471 | INFO     | httpx | HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b1.ra4_e3600_r240_in1k/resolve/main/model.safetensors \"HTTP/1.1 302 Found\"\nWarning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n2026-05-20 13:00:58,472 | WARNING  | huggingface_hub.utils._http | Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n2026-05-20 13:00:58,481 | INFO     | timm.models._hub | [timm/efficientnet_b1.ra4_e3600_r240_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.\n2026-05-20 13:00:58,521 | INFO     | timm.models._builder | Converted input conv conv_stem pretrained weights from 3 to 1 channel(s)\nEpoch 1/20, Train Loss: 3.6424\nEpoch 1/20, Validation AUC: 0.5000\n--> Saved new best checkpoint with AUC: 0.5000\nEpoch 2/20, Train Loss: 0.7854\nEpoch 2/20, Validation AUC: 0.5000\nEarly stopping counter: 1/3\nEpoch 3/20, Train Loss: 0.6959\nEpoch 3/20, Validation AUC: 0.4866\nEarly stopping counter: 2/3\nEpoch 4/20, Train Loss: 0.6441\nEpoch 4/20, Validation AUC: 0.4872\nEarly stopping counter: 3/3\nEarly stopping triggered.\nMETRICS:  {\"final_train_loss\": 0.64406766953753, \"final_auc\": 0.5, \"num_params\": 7274158, \"epochs_trained\": 4, \"batch_size\": 32, \"training_samples\": 15000, \"eval_samples\": 3000}\n",
+  "stderr": "",
+  "timed_out": false,
+  "duration_s": 1382.2,
+  "metrics": {
+    "final_train_loss": 0.64406766953753,
+    "final_auc": 0.5,
+    "num_params": 7274158,
+    "epochs_trained": 4,
+    "batch_size": 32,
+    "training_samples": 15000,
+    "eval_samples": 3000
+  }
+}
